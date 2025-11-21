@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fast HTML Editor</title>
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+  <div class="app" id="appRoot">
+    <header class="header">
+      <h1>Fast HTML Editor</h1>
+      <div class="toolbar">
+        <button id="openBtn" class="primary">Abrir HTML(s)</button>
+        <button id="reloadBtn">Recarregar arquivo</button>
+        <button id="rescanBtn">Re-escanear</button>
+        <button id="saveBtn" class="ok">Salvar atual</button>
+        <button id="saveAllBtn" class="ok">Salvar todos</button>
+        <button id="exportZipBtn" class="warn">Exportar ZIP…</button>
+        <button id="downloadBtn" title="Fallback: baixar arquivo atual">Baixar atual</button>
+      </div>
+
+      <div class="viewControls">
+        <label class="toggleAll"><input type="checkbox" id="allModeToggle" checked> Ver todos juntos</label>
+        <label class="density">
+          Densidade:
+          <select id="densitySelect">
+            <option value="comfortable" selected>Conforto</option>
+            <option value="compact">Compacto</option>
+          </select>
+        </label>
+        <label class="fontsize">
+          Fonte:
+          <input id="fontSizeRange" type="range" min="12" max="18" value="14">
+          <span id="fontSizeLabel">14px</span>
+        </label>
+        <button id="expandAllBtn">Expandir tudo</button>
+        <button id="collapseAllBtn">Recolher tudo</button>
+        <span id="dirtyText" class="muted">Nenhuma alteração.</span>
+      </div>
+    </header>
+
+    <section class="panel tabs-wrap">
+      <div class="tabs" id="tabs"></div>
+      <div class="fileMeta">
+        <span id="fileInfo"></span>
+      </div>
+    </section>
+
+    <main class="main">
+      <section class="panel left">
+        <div class="controls">
+          <input type="search" id="search" placeholder="Filtrar por conteúdo…" />
+          <label><input type="checkbox" id="shortToggle" checked> Ocultar textos curtos (&lt; 3)</label>
+          <label><input type="checkbox" id="attrsToggle"> Incluir atributos (title/alt/aria-label)</label>
+        </div>
+
+        <div class="replaceBox">
+          <input type="text" id="findInput" placeholder="Buscar…" />
+          <input type="text" id="replaceInput" placeholder="Substituir por…" />
+          <button id="replaceAllBtn">Substituir tudo (arquivo atual)</button>
+        </div>
+
+        <div class="list" id="textList"></div>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="./app.js"></script>
+</body>
+
+</html>
