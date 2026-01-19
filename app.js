@@ -1,7 +1,7 @@
 // Fast HTML Editor v7.1 – All-in-one responsivo, com grid adaptável + densidade e tamanho de fonte.
 
 const state = {
-  files: [], // { name, handle, doc, nodes: NodeEntry[], dirty:false, openedOrder:number }
+  files: [], // { name, handle, doc, nodes: NodeEntry[], dirty:false, openedOrder:number, zipBundleId?:number, zipPath?:string }
   activeIndex: -1,
   includeAttrs: false,
   hideShort: true,
@@ -9,6 +9,10 @@ const state = {
   openCounter: 0,
   allMode: true,
 };
+
+// Guardar referência dos ZIPs originais
+const zipBundles = []; // { id, name, zip }
+let zipBundleCounter = 0;
 
 // ---- Helpers ----
 const $ = (s) => document.querySelector(s);
@@ -28,33 +32,33 @@ const hasFS = 'showOpenFilePicker' in window && 'showSaveFilePicker' in window;
 
 // ---- UI Density & Font size ----
 document.body.dataset.density = densitySelect.value;
-densitySelect.addEventListener('change', () => {
+densitySelect.addEventListener('change', ()=>{
   document.body.dataset.density = densitySelect.value;
 });
-fontSizeRange.addEventListener('input', () => {
+fontSizeRange.addEventListener('input', ()=>{
   const v = fontSizeRange.value;
   fontSizeLabel.textContent = v + 'px';
-  document.documentElement.style.setProperty('--base-font', v + 'px');
+  document.documentElement.style.setProperty('--base-font', v+'px');
   // aplica nos textareas via inline para refletir imediatamente
-  document.querySelectorAll('.card textarea').forEach(ta => ta.style.fontSize = v + 'px');
+  document.querySelectorAll('.card textarea').forEach(ta => ta.style.fontSize = v+'px');
 });
 
 // Expandir/Recolher grupos (apenas alterna classe 'collapsed')
-expandAllBtn.addEventListener('click', () => {
+expandAllBtn.addEventListener('click', ()=>{
   document.querySelectorAll('.group').forEach(g => g.classList.remove('collapsed'));
 });
-collapseAllBtn.addEventListener('click', () => {
+collapseAllBtn.addEventListener('click', ()=>{
   document.querySelectorAll('.group').forEach(g => g.classList.add('collapsed'));
 });
 
 // ---- Sanitização ----
-function normalizeHTML(src) {
+function normalizeHTML(src){
   if (!src) return src;
   let s = src.replace(/^\uFEFF/, '');
   s = s.replace(/^(\s*\\n)+/, '').replace(/^\s*\n+/, '');
   return s;
 }
-function stripLiteralBackslashN(doc) {
+function stripLiteralBackslashN(doc){
   if (!doc || !doc.body) return;
   while (doc.body.firstChild && doc.body.firstChild.nodeType === 3 && /^(\\s*\\n)+\\s*$/.test(doc.body.firstChild.nodeValue)) {
     doc.body.removeChild(doc.body.firstChild);
@@ -65,39 +69,142 @@ function stripLiteralBackslashN(doc) {
   nodes.forEach(t => t.nodeValue = t.nodeValue.replace(/\\n+/g, ''));
 }
 
+
 // ---- Abrir e recarregar arquivos ----
 $('#openBtn').addEventListener('click', async () => {
   try {
     const handles = await window.showOpenFilePicker({
       multiple: true,
       excludeAcceptAllOption: true,
-      types: [{ description: 'Arquivos HTML', accept: { 'text/html': ['.html', '.htm'] } }]
+      types: [{ description:'Arquivos HTML', accept: { 'text/html': ['.html', '.htm'] } }]
     });
     if (!handles?.length) return;
-    for (const handle of handles.slice(0, 5)) await openOne(handle);
+    // ainda limita a 5 HTMLs por vez, como já estava
+    for (const handle of handles.slice(0,5)) await openOne(handle);
     if (state.activeIndex === -1 && state.files.length > 0) setActive(0);
-  } catch (e) {
+  } catch(e){
     if (e.name !== 'AbortError') alert('Não foi possível abrir: ' + e.message);
   }
 });
 
-$('#reloadBtn').addEventListener('click', async () => {
+// ---- Abrir até 10 ZIPs e carregar HTMLs internos ----
+const openZipBtn = $('#openZipBtn');
+if (openZipBtn) {
+  openZipBtn.addEventListener('click', async () => {
+    try {
+      if (!window.JSZip) {
+        alert('JSZip não carregado. Confira a tag <script> no index.html.');
+        return;
+      }
+      if (!window.showOpenFilePicker) {
+        alert('Seu navegador não suporta abrir ZIP por aqui (showOpenFilePicker ausente).');
+        return;
+      }
+
+      const handles = await window.showOpenFilePicker({
+        multiple: true,
+        excludeAcceptAllOption: true,
+        types: [{ description:'Arquivos ZIP', accept: { 'application/zip': ['.zip'] } }]
+      });
+      if (!handles?.length) return;
+
+      const limited = handles.slice(0, 10);
+      if (handles.length > 10) {
+        alert('Só os 10 primeiros ZIPs serão abertos.');
+      }
+
+      let totalHtmls = 0;
+
+      for (const handle of limited) {
+        const file = await handle.getFile();
+        const buffer = await file.arrayBuffer();
+        const zip = await JSZip.loadAsync(buffer);
+
+        // Registrar este ZIP na lista de bundles
+        const bundleId = ++zipBundleCounter;
+        zipBundles.push({
+          id: bundleId,
+          name: file.name,
+          zip
+        });
+
+        const htmlEntries = [];
+        zip.forEach((relativePath, zipEntry) => {
+          if (!zipEntry.dir && /\.html?$/i.test(relativePath)) {
+            htmlEntries.push(zipEntry);
+          }
+        });
+
+        for (const entry of htmlEntries) {
+          const text = await entry.async('text');
+          const doc = parseToDoc(text);
+          const nameInZip = entry.name.split('/').pop() || 'arquivo.html';
+
+          const fileEntry = {
+            name: nameInZip,
+            handle: null,            // não temos handle de disco pro arquivo do ZIP
+            doc,
+            nodes: [],
+            dirty: false,
+            openedOrder: ++state.openCounter,
+            zipBundleId: bundleId,   // de qual ZIP veio
+            zipPath: entry.name      // caminho interno dentro do ZIP
+          };
+
+          state.files.push(fileEntry);
+          totalHtmls++;
+        }
+      }
+
+      if (totalHtmls === 0) {
+        alert('Nenhum arquivo HTML encontrado nos ZIPs selecionados.');
+        return;
+      }
+
+      buildTabs();
+      if (state.activeIndex === -1 && state.files.length > 0) {
+        setActive(0);
+      } else {
+        await rescanAllOrActive();
+      }
+
+      toast(`✅ Carregado(s) ${totalHtmls} HTML(s) de ${limited.length} ZIP(s).`);
+    } catch (e) {
+      if (e.name !== 'AbortError') {
+        console.error(e);
+        alert('Falha ao abrir ZIP(s): ' + e.message);
+      }
+    }
+  });
+}
+
+$('#reloadBtn').addEventListener('click', async ()=>{
   const f = state.files[state.activeIndex]; if (!f) return;
   await reloadFromDisk(f);
   await rescanAllOrActive();
 });
 
-async function openOne(handle) {
+
+async function openOne(handle){
   const file = await handle.getFile();
   const text = await file.text();
   const doc = parseToDoc(text);
-  const entry = { name: handle.name || file.name, handle, doc, nodes: [], dirty: false, openedOrder: ++state.openCounter };
+  const entry = {
+    name: handle.name || file.name,
+    handle,
+    doc,
+    nodes: [],
+    dirty: false,
+    openedOrder: ++state.openCounter,
+    zipBundleId: null,
+    zipPath: null
+  };
   state.files.push(entry);
   buildTabs();
   await rescanAllOrActive();
 }
 
-async function reloadFromDisk(entry) {
+async function reloadFromDisk(entry){
   if (!entry?.handle) return;
   const file = await entry.handle.getFile();
   const text = await file.text();
@@ -106,7 +213,7 @@ async function reloadFromDisk(entry) {
   updateDirty();
 }
 
-function parseToDoc(text) {
+function parseToDoc(text){
   const parser = new DOMParser();
   const html = normalizeHTML(text);
   const doc = parser.parseFromString(html, 'text/html');
@@ -114,46 +221,46 @@ function parseToDoc(text) {
   return doc;
 }
 
-function buildTabs() {
+function buildTabs(){
   tabsEl.innerHTML = '';
   state.files.forEach((f, i) => {
     const el = document.createElement('div');
-    el.className = 'tab' + (i === state.activeIndex ? ' active' : '');
-    el.textContent = `${i + 1}. ${f.name}${f.dirty ? ' •' : ''}`;
+    el.className = 'tab' + (i===state.activeIndex ? ' active' : '');
+    el.textContent = `${i+1}. ${f.name}${f.dirty ? ' •' : ''}`;
     el.title = f.name;
-    el.addEventListener('click', () => setActive(i));
+    el.addEventListener('click', ()=> setActive(i));
     tabsEl.appendChild(el);
   });
 }
 
-async function setActive(i) {
+async function setActive(i){
   state.activeIndex = i;
   buildTabs();
   const f = state.files[i];
   if (!f) return;
-  fileInfo.textContent = f.name + ' • ' + (f.dirty ? 'alterado' : 'sem alterações');
+  fileInfo.textContent = f.name + ' • ' + (f.dirty? 'alterado' : 'sem alterações');
   await rescanAllOrActive();
 }
 
-function updateDirty() {
-  const anyDirty = state.files.some(f => f.dirty);
+function updateDirty(){
+  const anyDirty = state.files.some(f=>f.dirty);
   dirtyText.textContent = anyDirty ? 'Há alterações não salvas.' : 'Nenhuma alteração.';
   buildTabs();
   const f = state.files[state.activeIndex];
-  if (f) fileInfo.textContent = f.name + ' • ' + (f.dirty ? 'alterado' : 'sem alterações');
+  if (f) fileInfo.textContent = f.name + ' • ' + (f.dirty? 'alterado' : 'sem alterações');
 }
 
 // ---- Visibilidade (DOMParser) ----
-function isHiddenByInline(el) {
+function isHiddenByInline(el){
   if (!el || el.nodeType !== 1) return false;
   const style = (el.getAttribute('style') || '').toLowerCase();
   if (style.includes('display:none') || style.includes('visibility:hidden')) return true;
   if (el.hasAttribute('hidden')) return true;
   return false;
 }
-function isEffectivelyVisible(el) {
+function isEffectivelyVisible(el){
   let cur = el;
-  while (cur && cur.nodeType === 1) {
+  while (cur && cur.nodeType === 1){
     if (isHiddenByInline(cur)) return false;
     cur = cur.parentElement;
   }
@@ -161,16 +268,16 @@ function isEffectivelyVisible(el) {
 }
 
 // ---- Scanner de textos ----
-async function rescanActive() {
+async function rescanActive(){
   const file = state.files[state.activeIndex]; if (!file) return;
   file.nodes = scanDoc(file.doc);
   renderList();
 }
 
-function scanDoc(doc) {
+function scanDoc(doc){
   const nodes = [];
   const walker = doc.createTreeWalker(doc.body || doc, NodeFilter.SHOW_TEXT, {
-    acceptNode(node) {
+    acceptNode(node){
       if (!node) return NodeFilter.FILTER_REJECT;
       const raw = node.nodeValue || '';
       const txt = raw.replace(/\s+/g, ' ').trim();
@@ -178,56 +285,56 @@ function scanDoc(doc) {
       const parent = node.parentElement;
       if (!parent) return NodeFilter.FILTER_REJECT;
       const tag = parent.tagName?.toLowerCase();
-      if (['script', 'style', 'noscript', 'template', 'head'].includes(tag)) return NodeFilter.FILTER_REJECT;
+      if (['script','style','noscript','template','head'].includes(tag)) return NodeFilter.FILTER_REJECT;
       if (!isEffectivelyVisible(parent)) return NodeFilter.FILTER_REJECT;
       if (state.hideShort && txt.length < 3) return NodeFilter.FILTER_REJECT;
       return NodeFilter.FILTER_ACCEPT;
     }
   });
   let id = 1;
-  while (walker.nextNode()) {
+  while (walker.nextNode()){
     const node = walker.currentNode;
     const parent = node.parentElement;
     const snippet = (node.nodeValue || '').replace(/\s+/g, ' ').trim();
-    nodes.push({ id: id++, type: 'text', parentSelector: cssPath(parent), snippet, node, parent, length: snippet.length });
+    nodes.push({ id:id++, type:'text', parentSelector: cssPath(parent), snippet, node, parent, length: snippet.length });
   }
 
-  if (state.includeAttrs) {
+  if (state.includeAttrs){
     const candidates = Array.from(doc.querySelectorAll('[title], [alt], [aria-label]'));
-    for (const el of candidates) {
-      const attrs = ['title', 'alt', 'aria-label'];
-      for (const key of attrs) {
+    for (const el of candidates){
+      const attrs = ['title','alt','aria-label'];
+      for (const key of attrs){
         const v = el.getAttribute(key);
         if (!v) continue;
         const val = v.replace(/\s+/g, ' ').trim();
         if (!val) continue;
         if (!isEffectivelyVisible(el)) continue;
         if (state.hideShort && val.length < 3) continue;
-        nodes.push({ id: ++id, type: 'attr', key, parentSelector: cssPath(el), snippet: val, node: el, parent: el, length: val.length });
+        nodes.push({ id:++id, type:'attr', key, parentSelector: cssPath(el), snippet: val, node: el, parent: el, length: val.length });
       }
     }
   }
   return nodes;
 }
 
-async function rescanAllOrActive() {
-  if (state.allMode) {
-    for (const f of state.files) { f.nodes = scanDoc(f.doc); }
+async function rescanAllOrActive(){
+  if (state.allMode){
+    for (const f of state.files){ f.nodes = scanDoc(f.doc); }
     renderListAll();
   } else {
     await rescanActive();
   }
 }
 
-function cssPath(el) {
+function cssPath(el){
   if (!el || el.nodeType !== 1) return '';
   const parts = [];
-  while (el && el.nodeType === 1 && parts.length < 6) {
+  while (el && el.nodeType === 1 && parts.length < 6){
     let selector = el.nodeName.toLowerCase();
     if (el.id) { selector += '#' + el.id; parts.unshift(selector); break; }
     else {
       let sib = el; let nth = 1;
-      while (sib = sib.previousElementSibling) { if (sib.nodeName === el.nodeName) nth++; }
+      while (sib = sib.previousElementSibling){ if (sib.nodeName === el.nodeName) nth++; }
       selector += `:nth-of-type(${nth})`;
     }
     parts.unshift(selector);
@@ -237,7 +344,7 @@ function cssPath(el) {
 }
 
 // ---- Render: todos juntos (responsivo em grid) ----
-function renderListAll() {
+function renderListAll(){
   const term = state.searchTerm?.toLowerCase() || '';
   listEl.innerHTML = '';
 
@@ -250,9 +357,9 @@ function renderListAll() {
     head.className = 'groupHead';
     const name = document.createElement('div');
     name.className = 'name';
-    name.textContent = `${idx + 1}. ${file.name}${file.dirty ? ' •' : ''}`;
+    name.textContent = `${idx+1}. ${file.name}${file.dirty ? ' •' : ''}`;
     name.title = 'Clique para focar este arquivo (Salvar atual agirá sobre ele)';
-    name.addEventListener('click', () => setActive(idx));
+    name.addEventListener('click', ()=> setActive(idx));
     const chips = document.createElement('div'); chips.className = 'chips';
     const chipCount = document.createElement('span'); chipCount.className = 'chip'; chipCount.textContent = `${rows.length} textos`;
     chips.appendChild(chipCount);
@@ -274,7 +381,7 @@ function renderListAll() {
       const ta = document.createElement('textarea');
       ta.value = entry.snippet;
       ta.placeholder = 'Edite aqui…';
-      ta.addEventListener('input', () => onEditFromAll(file, entry, ta.value));
+      ta.addEventListener('input', ()=> onEditFromAll(file, entry, ta.value));
       card.appendChild(ta);
 
       const meta = document.createElement('div');
@@ -291,9 +398,9 @@ function renderListAll() {
 }
 
 // ---- Render: modo um por vez ----
-function renderList() {
+function renderList(){
   const file = state.files[state.activeIndex];
-  if (!file) { listEl.innerHTML = ''; return; }
+  if (!file) { listEl.innerHTML=''; return; }
   const term = state.searchTerm?.toLowerCase() || '';
   const rows = file.nodes.filter(n => !term || n.snippet.toLowerCase().includes(term));
   listEl.innerHTML = '';
@@ -322,7 +429,7 @@ function renderList() {
     const ta = document.createElement('textarea');
     ta.value = entry.snippet;
     ta.placeholder = 'Edite aqui…';
-    ta.addEventListener('input', () => onEdit(entry, ta.value));
+    ta.addEventListener('input', ()=> onEdit(entry, ta.value));
     card.appendChild(ta);
 
     const meta = document.createElement('div');
@@ -339,11 +446,11 @@ function renderList() {
 }
 
 // ---- Edição ----
-function onEdit(entry, newVal) {
+function onEdit(entry, newVal){
   const file = state.files[state.activeIndex]; if (!file) return;
-  if (entry.type === 'text') {
+  if (entry.type === 'text'){
     entry.node.nodeValue = newVal;
-  } else if (entry.type === 'attr') {
+  } else if (entry.type === 'attr'){
     entry.node.setAttribute(entry.key, newVal);
   }
   entry.snippet = newVal;
@@ -352,10 +459,10 @@ function onEdit(entry, newVal) {
   updateDirty();
 }
 
-function onEditFromAll(file, entry, newVal) {
-  if (entry.type === 'text') {
+function onEditFromAll(file, entry, newVal){
+  if (entry.type === 'text'){
     entry.node.nodeValue = newVal;
-  } else if (entry.type === 'attr') {
+  } else if (entry.type === 'attr'){
     entry.node.setAttribute(entry.key, newVal);
   }
   entry.snippet = newVal;
@@ -365,7 +472,7 @@ function onEditFromAll(file, entry, newVal) {
 }
 
 // ---- Replace all ----
-$('#replaceAllBtn').addEventListener('click', () => {
+$('#replaceAllBtn').addEventListener('click', ()=>{
   const file = state.files[state.activeIndex]; if (!file) return;
   const find = $('#findInput').value;
   const repl = $('#replaceInput').value;
@@ -373,32 +480,32 @@ $('#replaceAllBtn').addEventListener('click', () => {
 
   let count = 0;
   file.nodes.forEach(entry => {
-    if (entry.snippet.includes(find)) {
+    if (entry.snippet.includes(find)){
       const newVal = entry.snippet.split(find).join(repl);
-      if (newVal !== entry.snippet) {
-        if (entry.type === 'text') { entry.node.nodeValue = newVal; }
-        else if (entry.type === 'attr') { entry.node.setAttribute(entry.key, newVal); }
+      if (newVal !== entry.snippet){
+        if (entry.type === 'text'){ entry.node.nodeValue = newVal; }
+        else if (entry.type === 'attr'){ entry.node.setAttribute(entry.key, newVal); }
         entry.snippet = newVal; entry.length = newVal.length; count++;
       }
     }
   });
-  if (count > 0) { file.dirty = true; updateDirty(); state.allMode ? renderListAll() : renderList(); }
+  if (count>0){ file.dirty = true; updateDirty(); state.allMode ? renderListAll() : renderList(); }
   alert(`Substituições aplicadas: ${count}`);
 });
 
 // ---- Salvar ----
-function serializeWithDoctype(doc) {
+function serializeWithDoctype(doc){
   const dt = doc.doctype
     ? `<!DOCTYPE ${doc.doctype.name}${doc.doctype.publicId ? ` PUBLIC "${doc.doctype.publicId}"` : ''}${doc.doctype.systemId ? ` "${doc.doctype.systemId}"` : ''}>`
     : '';
   return dt + doc.documentElement.outerHTML;
 }
 
-async function saveFile(file) {
+async function saveFile(file){
   stripLiteralBackslashN(file.doc);
   const html = serializeWithDoctype(file.doc);
 
-  if (hasFS && file.handle) {
+  if (hasFS && file.handle){
     try {
       const writable = await file.handle.createWritable();
       await writable.write(html);
@@ -406,8 +513,8 @@ async function saveFile(file) {
       file.dirty = false; updateDirty();
       toast('✅ Salvo em ' + file.name);
       return true;
-    } catch (e) {
-      alert('Falha ao salvar: ' + e.message);
+    } catch(e){
+      alert('Falha ao salvar: '+ e.message);
       return false;
     }
   } else {
@@ -416,23 +523,23 @@ async function saveFile(file) {
   }
 }
 
-$('#saveBtn').addEventListener('click', async () => {
+$('#saveBtn').addEventListener('click', async ()=>{
   const f = state.files[state.activeIndex]; if (!f) { alert('Selecione um arquivo (clique no nome do grupo).'); return; }
   await saveFile(f);
 });
 
-$('#saveAllBtn').addEventListener('click', async () => {
-  for (const f of state.files) { if (f.dirty) await saveFile(f); }
+$('#saveAllBtn').addEventListener('click', async ()=>{
+  for (const f of state.files){ if (f.dirty) await saveFile(f); }
 });
 
-$('#downloadBtn').addEventListener('click', () => {
+$('#downloadBtn').addEventListener('click', ()=>{
   const f = state.files[state.activeIndex]; if (!f) return;
   stripLiteralBackslashN(f.doc);
   const html = serializeWithDoctype(f.doc);
   downloadAs(html, f.name);
 });
 
-// ---- Exportar ZIP ----
+// ---- Exportar ZIP(s) preservando estrutura original ----
 document.getElementById('exportZipBtn').addEventListener('click', async () => {
   if (!window.JSZip) {
     alert('JSZip não carregou. Verifique a tag <script> do JSZip no index.html.');
@@ -443,49 +550,115 @@ document.getElementById('exportZipBtn').addEventListener('click', async () => {
     return;
   }
 
-  const suggested = 'edited-htmls.zip';
-  let zipName = prompt('Nome do arquivo ZIP:', suggested);
-  if (!zipName) zipName = suggested;
-  if (!zipName.toLowerCase().endsWith('.zip')) zipName += '.zip';
+  // Arquivos que vieram de ZIP
+  const fromBundles = state.files.filter(f => f.zipBundleId);
+  // Arquivos soltos (HTML aberto direto)
+  const standalone = state.files.filter(f => !f.zipBundleId);
 
-  const zip = new JSZip();
-  for (const f of state.files) {
-    stripLiteralBackslashN(f.doc);
-    const html = serializeWithDoctype(f.doc);
-    const fname = (f.name || 'file.html').replace(/[\/\\]/g, '_');
-    zip.file(fname, html);
+  // 1) Para cada ZIP original, gerar um novo ZIP com os HTMLs atualizados
+  const bundleIds = [...new Set(fromBundles.map(f => f.zipBundleId))].filter(Boolean);
+
+  for (const id of bundleIds) {
+    const bundle = zipBundles.find(z => z.id === id);
+    if (!bundle) continue;
+
+    const { zip, name } = bundle;
+    const filesInBundle = fromBundles.filter(f => f.zipBundleId === id);
+
+    // Atualizar os HTMLs dentro do ZIP original
+    for (const f of filesInBundle) {
+      stripLiteralBackslashN(f.doc);
+      const html = serializeWithDoctype(f.doc);
+      const pathInZip = f.zipPath || f.name || 'index.html';
+      zip.file(pathInZip, html); // sobrescreve o arquivo no ZIP mantendo o resto
+    }
+
+    try {
+      const blob = await zip.generateAsync({ type: 'blob' });
+
+      // Nome sugerido: original + "-edited.zip"
+      let zipName = name || 'edited.zip';
+      if (!zipName.toLowerCase().endsWith('.zip')) {
+        zipName += '.zip';
+      }
+      const dot = zipName.lastIndexOf('.');
+      if (dot > 0) {
+        zipName = zipName.slice(0, dot) + '-edited' + zipName.slice(dot);
+      } else {
+        zipName = zipName.replace(/\.zip$/i, '') + '-edited.zip';
+      }
+
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: zipName,
+            types: [{ description: 'Arquivo ZIP', accept: { 'application/zip': ['.zip'] } }]
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          toast('✅ ZIP salvo: ' + (handle.name || zipName));
+        } catch (err) {
+          console.warn('SaveFilePicker cancelado/falhou. Usando download.', err);
+          downloadBlobAs(blob, zipName);
+          toast('⬇️ ZIP exportado: ' + zipName);
+        }
+      } else {
+        downloadBlobAs(blob, zipName);
+        toast('⬇️ ZIP exportado: ' + zipName);
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Falha ao gerar ZIP: ' + e.message);
+    }
   }
 
-  try {
-    const blob = await zip.generateAsync({ type: 'blob' });
-    if (window.showSaveFilePicker) {
-      try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: zipName,
-          types: [{ description: 'Arquivo ZIP', accept: { 'application/zip': ['.zip'] } }]
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        toast('✅ ZIP salvo: ' + (handle.name || zipName));
-        return;
-      } catch (err) {
-        console.warn('SaveFilePicker cancelado/falhou. Usando download.', err);
-      }
+  // 2) Se tiver HTMLs "soltos" (não vieram de ZIP) e nenhum ZIP carregado,
+  // ainda geramos um ZIP simples com eles (comportamento antigo).
+  if (standalone.length && bundleIds.length === 0) {
+    const zip = new JSZip();
+    for (const f of standalone) {
+      stripLiteralBackslashN(f.doc);
+      const html = serializeWithDoctype(f.doc);
+      const fname = (f.name || 'file.html').replace(/[\/\\]/g, '_');
+      zip.file(fname, html);
     }
-    downloadBlobAs(blob, zipName);
-    toast('⬇️ ZIP exportado: ' + zipName);
-  } catch (e) {
-    console.error(e);
-    alert('Falha ao gerar ZIP: ' + e.message);
+
+    try {
+      const blob = await zip.generateAsync({ type: 'blob' });
+      let zipName = 'edited-htmls.zip';
+
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: zipName,
+            types: [{ description: 'Arquivo ZIP', accept: { 'application/zip': ['.zip'] } }]
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          toast('✅ ZIP salvo: ' + (handle.name || zipName));
+        } catch (err) {
+          console.warn('SaveFilePicker cancelado/falhou. Usando download.', err);
+          downloadBlobAs(blob, zipName);
+          toast('⬇️ ZIP exportado: ' + zipName);
+        }
+      } else {
+        downloadBlobAs(blob, zipName);
+        toast('⬇️ ZIP exportado: ' + zipName);
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Falha ao gerar ZIP: ' + e.message);
+    }
   }
 });
 
-function downloadAs(content, filename) {
-  const blob = new Blob([content], { type: 'text/html;charset=utf-8' });
+function downloadAs(content, filename){
+  const blob = new Blob([content], {type:'text/html;charset=utf-8'});
   downloadBlobAs(blob, filename || 'edited.html');
 }
-function downloadBlobAs(blob, filename) {
+function downloadBlobAs(blob, filename){
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url; a.download = filename;
@@ -495,22 +668,22 @@ function downloadBlobAs(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-function toast(msg) {
+function toast(msg){
   const t = document.createElement('div');
   t.textContent = msg;
   Object.assign(t.style, {
-    position: 'fixed', bottom: '14px', right: '14px',
-    background: '#0b1325', border: '1px solid #23304a',
-    padding: '10px 12px', borderRadius: '10px', color: '#cbd5e1',
-    zIndex: 9999, boxShadow: '0 6px 24px rgba(0,0,0,.35)'
+    position:'fixed', bottom:'14px', right:'14px',
+    background:'#0b1325', border:'1px solid #23304a',
+    padding:'10px 12px', borderRadius:'10px', color:'#cbd5e1',
+    zIndex:9999, boxShadow:'0 6px 24px rgba(0,0,0,.35)'
   });
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 1600);
+  setTimeout(()=> t.remove(), 1600);
 }
 
 // ---- Filtros UI ----
-$('#search').addEventListener('input', (e) => { state.searchTerm = e.target.value; state.allMode ? renderListAll() : renderList(); });
-$('#shortToggle').addEventListener('change', (e) => { state.hideShort = e.target.checked; rescanAllOrActive(); });
-$('#attrsToggle').addEventListener('change', (e) => { state.includeAttrs = e.target.checked; rescanAllOrActive(); });
+$('#search').addEventListener('input', (e)=>{ state.searchTerm = e.target.value; state.allMode ? renderListAll() : renderList(); });
+$('#shortToggle').addEventListener('change', (e)=>{ state.hideShort = e.target.checked; rescanAllOrActive(); });
+$('#attrsToggle').addEventListener('change', (e)=>{ state.includeAttrs = e.target.checked; rescanAllOrActive(); });
 $('#rescanBtn').addEventListener('click', rescanAllOrActive);
-$('#allModeToggle').addEventListener('change', (e) => { state.allMode = e.target.checked; rescanAllOrActive(); });
+$('#allModeToggle').addEventListener('change', (e)=>{ state.allMode = e.target.checked; rescanAllOrActive(); });
