@@ -624,8 +624,8 @@ if (replaceAllBtn) {
 // ---- Save ----
 function serializeWithDoctype(doc) {
   const dt = doc.doctype
-    ? `<!DOCTYPE ${doc.doctype.name}${doc.doctype.publicId ? ` PUBLIC "${doc.doctype.publicId}"` : ""
-    }${doc.doctype.systemId ? ` "${doc.doctype.systemId}"` : ""}>`
+    ? `<!DOCTYPE ${doc.doctype.name}${doc.doctype.publicId ? ` PUBLIC "${doc.doctype.publicId}"` : ""}${doc.doctype.systemId ? ` "${doc.doctype.systemId}"` : ""
+    }>`
     : "";
   return dt + doc.documentElement.outerHTML;
 }
@@ -825,25 +825,40 @@ if (allModeToggle) {
 }
 
 // ==========================
-// ✅ TRANSLATE (FIX APPLY)
+// ✅ TRANSLATE (FIX APPLY + TIMEOUT + BETTER ERRORS)
 // ==========================
 function setTranslatingUI(on) {
   state.translating = !!on;
-  const label = on ? "Traduzindo..." : null;
 
   if (translateCurrentBtn) {
     translateCurrentBtn.disabled = on;
-    if (label) translateCurrentBtn.dataset._old = translateCurrentBtn.textContent;
+    if (!translateCurrentBtn.dataset._old) translateCurrentBtn.dataset._old = translateCurrentBtn.textContent;
     translateCurrentBtn.textContent = on ? "Traduzindo..." : (translateCurrentBtn.dataset._old || "Traduzir atual");
   }
 
   if (translateAllBtn) {
     translateAllBtn.disabled = on;
-    if (label) translateAllBtn.dataset._old = translateAllBtn.textContent;
+    if (!translateAllBtn.dataset._old) translateAllBtn.dataset._old = translateAllBtn.textContent;
     translateAllBtn.textContent = on ? "Traduzindo..." : (translateAllBtn.dataset._old || "Traduzir todos");
   }
 
   if (langSelect) langSelect.disabled = on;
+}
+
+function getSelectedLang() {
+  if (!langSelect) return "Inglês";
+  return (langSelect.value || langSelect.options?.[langSelect.selectedIndex]?.text || "Inglês").trim();
+}
+
+async function fetchWithTimeout(url, options = {}, ms = 90_000) {
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), ms);
+  try {
+    const r = await fetch(url, { ...options, signal: controller.signal });
+    return r;
+  } finally {
+    clearTimeout(t);
+  }
 }
 
 async function translateFile(file, targetLang) {
@@ -851,17 +866,21 @@ async function translateFile(file, targetLang) {
   stripLiteralBackslashN(file.doc);
   const html = serializeWithDoctype(file.doc);
 
-  // 2) call vercel function
-  const r = await fetch("/api/translate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ html, targetLang }),
-  });
+  // 2) call vercel function (com timeout)
+  const r = await fetchWithTimeout(
+    "/api/translate",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ html, targetLang }),
+    },
+    120_000
+  );
 
   const data = await r.json().catch(() => ({}));
 
   if (!r.ok) {
-    const msg = data?.error ? String(data.error) : "Falha ao traduzir";
+    const msg = data?.error ? String(data.error) : `Falha ao traduzir (HTTP ${r.status})`;
     throw new Error(msg);
   }
 
@@ -877,12 +896,6 @@ async function translateFile(file, targetLang) {
   file.dirty = true;
 }
 
-function getSelectedLang() {
-  // Usa value do select. Pode ser "Espanhol" ou "es", tanto faz pro prompt.
-  if (!langSelect) return "Inglês";
-  return (langSelect.value || langSelect.options?.[langSelect.selectedIndex]?.text || "Inglês").trim();
-}
-
 if (translateCurrentBtn) {
   translateCurrentBtn.addEventListener("click", async () => {
     const f = state.files[state.activeIndex];
@@ -892,11 +905,11 @@ if (translateCurrentBtn) {
     }
 
     const lang = getSelectedLang();
+
     try {
       setTranslatingUI(true);
       await translateFile(f, lang);
 
-      // update UI
       updateDirty();
       await rescanAllOrActive();
       toast(`✅ Traduzido: ${f.name} → ${lang}`);
