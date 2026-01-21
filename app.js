@@ -1,6 +1,5 @@
-// Fast HTML Editor – app.js (com tradução via /api/translate)
+// Fast HTML Editor v8.x – with Translate (Vercel /api/translate) apply-back fix
 
-// ---- State ----
 const state = {
   files: [],
   activeIndex: -1,
@@ -9,6 +8,7 @@ const state = {
   searchTerm: "",
   openCounter: 0,
   allMode: true,
+  translating: false,
 };
 
 const zipBundles = [];
@@ -16,22 +16,69 @@ let zipBundleCounter = 0;
 
 // ---- Helpers ----
 const $ = (s) => document.querySelector(s);
+
 const tabsEl = $("#tabs");
 const listEl = $("#textList");
 const dirtyText = $("#dirtyText");
 const fileInfo = $("#fileInfo");
 
+const densitySelect = $("#densitySelect");
+const fontSizeRange = $("#fontSizeRange");
+const fontSizeLabel = $("#fontSizeLabel");
+const expandAllBtn = $("#expandAllBtn");
+const collapseAllBtn = $("#collapseAllBtn");
+
+const allModeToggle = $("#allModeToggle");
+const openBtn = $("#openBtn");
+const openZipBtn = $("#openZipBtn");
+const reloadBtn = $("#reloadBtn");
+const rescanBtn = $("#rescanBtn");
+const saveBtn = $("#saveBtn");
+const saveAllBtn = $("#saveAllBtn");
+const exportZipBtn = $("#exportZipBtn");
+const downloadBtn = $("#downloadBtn");
+
+const searchInput = $("#search");
+const shortToggle = $("#shortToggle");
+const attrsToggle = $("#attrsToggle");
+
+const replaceAllBtn = $("#replaceAllBtn");
+const findInput = $("#findInput");
+const replaceInput = $("#replaceInput");
+
+// Translate UI (if exists)
+const langSelect = $("#langSelect"); // <select id="langSelect">
+const translateCurrentBtn = $("#translateCurrentBtn"); // <button id="translateCurrentBtn">
+const translateAllBtn = $("#translateAllBtn"); // <button id="translateAllBtn">
+
 const hasFS = "showOpenFilePicker" in window && "showSaveFilePicker" in window;
 
-// ---- Translate UI (NOVO) ----
-const langSelect = $("#langSelect");
-const translateCurrentBtn = $("#translateCurrentBtn");
-const translateAllBtn = $("#translateAllBtn");
+// ---- UI Density & Font size ----
+if (densitySelect) {
+  document.body.dataset.density = densitySelect.value;
+  densitySelect.addEventListener("change", () => {
+    document.body.dataset.density = densitySelect.value;
+  });
+}
 
-function setTranslateBusy(isBusy) {
-  if (translateCurrentBtn) translateCurrentBtn.disabled = isBusy;
-  if (translateAllBtn) translateAllBtn.disabled = isBusy;
-  if (langSelect) langSelect.disabled = isBusy;
+if (fontSizeRange) {
+  fontSizeRange.addEventListener("input", () => {
+    const v = fontSizeRange.value;
+    if (fontSizeLabel) fontSizeLabel.textContent = v + "px";
+    document.documentElement.style.setProperty("--base-font", v + "px");
+    document.querySelectorAll(".card textarea").forEach((ta) => (ta.style.fontSize = v + "px"));
+  });
+}
+
+if (expandAllBtn) {
+  expandAllBtn.addEventListener("click", () => {
+    document.querySelectorAll(".group").forEach((g) => g.classList.remove("collapsed"));
+  });
+}
+if (collapseAllBtn) {
+  collapseAllBtn.addEventListener("click", () => {
+    document.querySelectorAll(".group").forEach((g) => g.classList.add("collapsed"));
+  });
 }
 
 // ---- Sanitização ----
@@ -57,55 +104,25 @@ function stripLiteralBackslashN(doc) {
   nodes.forEach((t) => (t.nodeValue = t.nodeValue.replace(/\\n+/g, "")));
 }
 
-// ---- Parse / Serialize ----
-function parseToDoc(text) {
-  const parser = new DOMParser();
-  const html = normalizeHTML(text);
-  const doc = parser.parseFromString(html, "text/html");
-  stripLiteralBackslashN(doc);
-  return doc;
-}
-
-function serializeWithDoctype(doc) {
-  const dt = doc.doctype
-    ? `<!DOCTYPE ${doc.doctype.name}${doc.doctype.publicId ? ` PUBLIC "${doc.doctype.publicId}"` : ""
-    }${doc.doctype.systemId ? ` "${doc.doctype.systemId}"` : ""}>`
-    : "";
-  return dt + doc.documentElement.outerHTML;
-}
-
-// ---- Toast ----
-function toast(msg) {
-  const existing = document.querySelector(".toast");
-  if (existing) existing.remove();
-
-  const t = document.createElement("div");
-  t.className = "toast";
-  t.textContent = msg;
-  document.body.appendChild(t);
-  setTimeout(() => t.remove(), 2400);
-}
-
 // ---- Open Files ----
-$("#openBtn").addEventListener("click", async () => {
-  try {
-    const handles = await window.showOpenFilePicker({
-      multiple: true,
-      excludeAcceptAllOption: true,
-      types: [
-        { description: "Arquivos HTML", accept: { "text/html": [".html", ".htm"] } },
-      ],
-    });
-    if (!handles?.length) return;
-    for (const handle of handles.slice(0, 5)) await openOne(handle);
-    if (state.activeIndex === -1 && state.files.length > 0) setActive(0);
-  } catch (e) {
-    if (e.name !== "AbortError") alert("Não foi possível abrir: " + e.message);
-  }
-});
+if (openBtn) {
+  openBtn.addEventListener("click", async () => {
+    try {
+      const handles = await window.showOpenFilePicker({
+        multiple: true,
+        excludeAcceptAllOption: true,
+        types: [{ description: "Arquivos HTML", accept: { "text/html": [".html", ".htm"] } }],
+      });
+      if (!handles?.length) return;
+      for (const handle of handles.slice(0, 5)) await openOne(handle);
+      if (state.activeIndex === -1 && state.files.length > 0) setActive(0);
+    } catch (e) {
+      if (e.name !== "AbortError") alert("Não foi possível abrir: " + e.message);
+    }
+  });
+}
 
 // ---- Open ZIP ----
-const openZipBtn = $("#openZipBtn");
 if (openZipBtn) {
   openZipBtn.addEventListener("click", async () => {
     try {
@@ -148,7 +165,7 @@ if (openZipBtn) {
           const doc = parseToDoc(text);
           const nameInZip = entry.name.split("/").pop() || "arquivo.html";
 
-          state.files.push({
+          const fileEntry = {
             name: nameInZip,
             handle: null,
             doc,
@@ -157,8 +174,9 @@ if (openZipBtn) {
             openedOrder: ++state.openCounter,
             zipBundleId: bundleId,
             zipPath: entry.name,
-          });
+          };
 
+          state.files.push(fileEntry);
           totalHtmls++;
         }
       }
@@ -182,19 +200,20 @@ if (openZipBtn) {
   });
 }
 
-$("#reloadBtn").addEventListener("click", async () => {
-  const f = state.files[state.activeIndex];
-  if (!f) return;
-  await reloadFromDisk(f);
-  await rescanAllOrActive();
-});
+if (reloadBtn) {
+  reloadBtn.addEventListener("click", async () => {
+    const f = state.files[state.activeIndex];
+    if (!f) return;
+    await reloadFromDisk(f);
+    await rescanAllOrActive();
+  });
+}
 
 async function openOne(handle) {
   const file = await handle.getFile();
   const text = await file.text();
   const doc = parseToDoc(text);
-
-  state.files.push({
+  const entry = {
     name: handle.name || file.name,
     handle,
     doc,
@@ -203,8 +222,8 @@ async function openOne(handle) {
     openedOrder: ++state.openCounter,
     zipBundleId: null,
     zipPath: null,
-  });
-
+  };
+  state.files.push(entry);
   buildTabs();
   await rescanAllOrActive();
 }
@@ -218,8 +237,16 @@ async function reloadFromDisk(entry) {
   updateDirty();
 }
 
-// ---- Tabs ----
+function parseToDoc(text) {
+  const parser = new DOMParser();
+  const html = normalizeHTML(text);
+  const doc = parser.parseFromString(html, "text/html");
+  stripLiteralBackslashN(doc);
+  return doc;
+}
+
 function buildTabs() {
+  if (!tabsEl) return;
   tabsEl.innerHTML = "";
   state.files.forEach((f, i) => {
     const el = document.createElement("div");
@@ -243,17 +270,19 @@ async function setActive(i) {
   buildTabs();
   const f = state.files[i];
   if (!f) return;
-  fileInfo.textContent = f.name + " • " + (f.dirty ? "alterado" : "sem alterações");
+  if (fileInfo) fileInfo.textContent = f.name + " • " + (f.dirty ? "alterado" : "sem alterações");
   await rescanAllOrActive();
 }
 
 function updateDirty() {
   const anyDirty = state.files.some((f) => f.dirty);
-  dirtyText.textContent = anyDirty ? "Há alterações não salvas." : "Nenhuma alteração.";
-  dirtyText.className = "status-badge" + (anyDirty ? " dirty" : "");
+  if (dirtyText) {
+    dirtyText.textContent = anyDirty ? "Há alterações não salvas." : "Nenhuma alteração.";
+    dirtyText.className = "status-badge" + (anyDirty ? " dirty" : "");
+  }
   buildTabs();
   const f = state.files[state.activeIndex];
-  if (f) fileInfo.textContent = f.name + " • " + (f.dirty ? "alterado" : "sem alterações");
+  if (f && fileInfo) fileInfo.textContent = f.name + " • " + (f.dirty ? "alterado" : "sem alterações");
 }
 
 // ---- Visibility ----
@@ -290,17 +319,12 @@ function scanDoc(doc) {
       const raw = node.nodeValue || "";
       const txt = raw.replace(/\s+/g, " ").trim();
       if (!txt) return NodeFilter.FILTER_REJECT;
-
       const parent = node.parentElement;
       if (!parent) return NodeFilter.FILTER_REJECT;
-
       const tag = parent.tagName?.toLowerCase();
-      if (["script", "style", "noscript", "template", "head"].includes(tag))
-        return NodeFilter.FILTER_REJECT;
-
+      if (["script", "style", "noscript", "template", "head"].includes(tag)) return NodeFilter.FILTER_REJECT;
       if (!isEffectivelyVisible(parent)) return NodeFilter.FILTER_REJECT;
       if (state.hideShort && txt.length < 3) return NodeFilter.FILTER_REJECT;
-
       return NodeFilter.FILTER_ACCEPT;
     },
   });
@@ -345,7 +369,6 @@ function scanDoc(doc) {
       }
     }
   }
-
   return nodes;
 }
 
@@ -384,6 +407,7 @@ function cssPath(el) {
 // ---- Render: All Mode ----
 function renderListAll() {
   const term = state.searchTerm?.toLowerCase() || "";
+  if (!listEl) return;
   listEl.innerHTML = "";
 
   if (state.files.length === 0) {
@@ -400,21 +424,8 @@ function renderListAll() {
         <h2>Nenhum arquivo aberto</h2>
         <p>Abra arquivos HTML ou um arquivo ZIP para começar a editar textos de forma rápida e eficiente.</p>
         <div class="actions">
-          <button class="btn btn-primary" onclick="document.getElementById('openBtn').click()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="17 8 12 3 7 8"/>
-              <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-            Abrir HTML(s)
-          </button>
-          <button class="btn" onclick="document.getElementById('openZipBtn').click()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 8v13H3V8"/>
-              <path d="M23 3H1v5h22V3z"/>
-            </svg>
-            Abrir arquivo ZIP
-          </button>
+          <button class="btn btn-primary" onclick="document.getElementById('openBtn').click()">Abrir HTML(s)</button>
+          <button class="btn" onclick="document.getElementById('openZipBtn').click()">Abrir arquivo ZIP</button>
         </div>
       </div>
     `;
@@ -435,14 +446,13 @@ function renderListAll() {
           <polyline points="14 2 14 8 20 8"/>
         </svg>
         <span>${idx + 1}. ${file.name}</span>
-        ${file.dirty ? '<span class="dirty-dot" style="width:8px;height:8px;border-radius:50%;"></span>' : ""}
+        ${file.dirty ? '<span class="dirty-dot" style="width:8px;height:8px;"></span>' : ""}
       </div>
       <div class="chips">
         <span class="chip">${rows.length} textos</span>
         ${file.dirty ? '<span class="chip warning">editado</span>' : ""}
       </div>
     `;
-
     head.addEventListener("click", (e) => {
       if (e.target.closest(".chips")) setActive(idx);
       else group.classList.toggle("collapsed");
@@ -487,6 +497,7 @@ function renderListAll() {
 // ---- Render: Single Mode ----
 function renderList() {
   const file = state.files[state.activeIndex];
+  if (!listEl) return;
   if (!file) {
     listEl.innerHTML = "";
     return;
@@ -508,7 +519,7 @@ function renderList() {
         <polyline points="14 2 14 8 20 8"/>
       </svg>
       <span>${file.name}</span>
-      ${file.dirty ? '<span class="dirty-dot" style="width:8px;height:8px;border-radius:50%;"></span>' : ""}
+      ${file.dirty ? '<span class="dirty-dot" style="width:8px;height:8px;"></span>' : ""}
     </div>
     <div class="chips">
       <span class="chip">${rows.length} textos</span>
@@ -575,40 +586,50 @@ function onEditFromAll(file, entry, newVal) {
 }
 
 // ---- Replace All ----
-$("#replaceAllBtn").addEventListener("click", () => {
-  const file = state.files[state.activeIndex];
-  if (!file) return;
+if (replaceAllBtn) {
+  replaceAllBtn.addEventListener("click", () => {
+    const file = state.files[state.activeIndex];
+    if (!file) return;
 
-  const find = $("#findInput").value;
-  const repl = $("#replaceInput").value;
-  if (!find) {
-    alert("Informe um termo para buscar.");
-    return;
-  }
-
-  let count = 0;
-  file.nodes.forEach((entry) => {
-    if (entry.snippet.includes(find)) {
-      const newVal = entry.snippet.split(find).join(repl);
-      if (newVal !== entry.snippet) {
-        if (entry.type === "text") entry.node.nodeValue = newVal;
-        else if (entry.type === "attr") entry.node.setAttribute(entry.key, newVal);
-        entry.snippet = newVal;
-        entry.length = newVal.length;
-        count++;
-      }
+    const find = (findInput?.value || "").toString();
+    const repl = (replaceInput?.value || "").toString();
+    if (!find) {
+      alert("Informe um termo para buscar.");
+      return;
     }
-  });
 
-  if (count > 0) {
-    file.dirty = true;
-    updateDirty();
-    state.allMode ? renderListAll() : renderList();
-  }
-  toast(`${count} substituições aplicadas`);
-});
+    let count = 0;
+    file.nodes.forEach((entry) => {
+      if (entry.snippet.includes(find)) {
+        const newVal = entry.snippet.split(find).join(repl);
+        if (newVal !== entry.snippet) {
+          if (entry.type === "text") entry.node.nodeValue = newVal;
+          else if (entry.type === "attr") entry.node.setAttribute(entry.key, newVal);
+          entry.snippet = newVal;
+          entry.length = newVal.length;
+          count++;
+        }
+      }
+    });
+
+    if (count > 0) {
+      file.dirty = true;
+      updateDirty();
+      state.allMode ? renderListAll() : renderList();
+    }
+    toast(`${count} substituições aplicadas`);
+  });
+}
 
 // ---- Save ----
+function serializeWithDoctype(doc) {
+  const dt = doc.doctype
+    ? `<!DOCTYPE ${doc.doctype.name}${doc.doctype.publicId ? ` PUBLIC "${doc.doctype.publicId}"` : ""
+    }${doc.doctype.systemId ? ` "${doc.doctype.systemId}"` : ""}>`
+    : "";
+  return dt + doc.documentElement.outerHTML;
+}
+
 async function saveFile(file) {
   stripLiteralBackslashN(file.doc);
   const html = serializeWithDoctype(file.doc);
@@ -632,119 +653,123 @@ async function saveFile(file) {
   }
 }
 
-$("#saveBtn").addEventListener("click", async () => {
-  const f = state.files[state.activeIndex];
-  if (!f) {
-    toast("Selecione um arquivo primeiro");
-    return;
-  }
-  await saveFile(f);
-});
+if (saveBtn) {
+  saveBtn.addEventListener("click", async () => {
+    const f = state.files[state.activeIndex];
+    if (!f) {
+      toast("Selecione um arquivo primeiro");
+      return;
+    }
+    await saveFile(f);
+  });
+}
 
-$("#saveAllBtn").addEventListener("click", async () => {
-  for (const f of state.files) {
-    if (f.dirty) await saveFile(f);
-  }
-});
+if (saveAllBtn) {
+  saveAllBtn.addEventListener("click", async () => {
+    for (const f of state.files) if (f.dirty) await saveFile(f);
+  });
+}
 
-$("#downloadBtn").addEventListener("click", () => {
-  const f = state.files[state.activeIndex];
-  if (!f) return;
-  stripLiteralBackslashN(f.doc);
-  const html = serializeWithDoctype(f.doc);
-  downloadAs(html, f.name);
-});
+if (downloadBtn) {
+  downloadBtn.addEventListener("click", () => {
+    const f = state.files[state.activeIndex];
+    if (!f) return;
+    stripLiteralBackslashN(f.doc);
+    const html = serializeWithDoctype(f.doc);
+    downloadAs(html, f.name);
+  });
+}
 
 // ---- Export ZIP ----
-document.getElementById("exportZipBtn").addEventListener("click", async () => {
-  if (!window.JSZip) {
-    alert("JSZip não carregou.");
-    return;
-  }
-  if (!state.files.length) {
-    alert("Nenhum arquivo aberto.");
-    return;
-  }
-
-  const fromBundles = state.files.filter((f) => f.zipBundleId);
-  const standalone = state.files.filter((f) => !f.zipBundleId);
-  const bundleIds = [...new Set(fromBundles.map((f) => f.zipBundleId))].filter(Boolean);
-
-  for (const id of bundleIds) {
-    const bundle = zipBundles.find((z) => z.id === id);
-    if (!bundle) continue;
-
-    const { zip, name } = bundle;
-    const filesInBundle = fromBundles.filter((f) => f.zipBundleId === id);
-
-    for (const f of filesInBundle) {
-      stripLiteralBackslashN(f.doc);
-      const html = serializeWithDoctype(f.doc);
-      const pathInZip = f.zipPath || f.name || "index.html";
-      zip.file(pathInZip, html);
+if (exportZipBtn) {
+  exportZipBtn.addEventListener("click", async () => {
+    if (!window.JSZip) {
+      alert("JSZip não carregou.");
+      return;
+    }
+    if (!state.files.length) {
+      alert("Nenhum arquivo aberto.");
+      return;
     }
 
-    const blob = await zip.generateAsync({ type: "blob" });
+    const fromBundles = state.files.filter((f) => f.zipBundleId);
+    const standalone = state.files.filter((f) => !f.zipBundleId);
+    const bundleIds = [...new Set(fromBundles.map((f) => f.zipBundleId))].filter(Boolean);
 
-    let zipName = name || "edited.zip";
-    if (!zipName.toLowerCase().endsWith(".zip")) zipName += ".zip";
-    const dot = zipName.lastIndexOf(".");
-    if (dot > 0) zipName = zipName.slice(0, dot) + "-edited" + zipName.slice(dot);
+    for (const id of bundleIds) {
+      const bundle = zipBundles.find((z) => z.id === id);
+      if (!bundle) continue;
 
-    if (window.showSaveFilePicker) {
-      try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: zipName,
-          types: [{ description: "Arquivo ZIP", accept: { "application/zip": [".zip"] } }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        toast("✅ ZIP salvo: " + (handle.name || zipName));
-      } catch {
+      const { zip, name } = bundle;
+      const filesInBundle = fromBundles.filter((f) => f.zipBundleId === id);
+
+      for (const f of filesInBundle) {
+        stripLiteralBackslashN(f.doc);
+        const html = serializeWithDoctype(f.doc);
+        const pathInZip = f.zipPath || f.name || "index.html";
+        zip.file(pathInZip, html);
+      }
+
+      const blob = await zip.generateAsync({ type: "blob" });
+
+      let zipName = name || "edited.zip";
+      if (!zipName.toLowerCase().endsWith(".zip")) zipName += ".zip";
+      const dot = zipName.lastIndexOf(".");
+      if (dot > 0) zipName = zipName.slice(0, dot) + "-edited" + zipName.slice(dot);
+
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: zipName,
+            types: [{ description: "Arquivo ZIP", accept: { "application/zip": [".zip"] } }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          toast("✅ ZIP salvo: " + (handle.name || zipName));
+        } catch (err) {
+          downloadBlobAs(blob, zipName);
+          toast("⬇️ ZIP exportado: " + zipName);
+        }
+      } else {
         downloadBlobAs(blob, zipName);
         toast("⬇️ ZIP exportado: " + zipName);
       }
-    } else {
-      downloadBlobAs(blob, zipName);
-      toast("⬇️ ZIP exportado: " + zipName);
-    }
-  }
-
-  if (standalone.length && bundleIds.length === 0) {
-    const zip = new JSZip();
-    for (const f of standalone) {
-      stripLiteralBackslashN(f.doc);
-      const html = serializeWithDoctype(f.doc);
-      const fname = (f.name || "file.html").replace(/[\/\\]/g, "_");
-      zip.file(fname, html);
     }
 
-    const blob = await zip.generateAsync({ type: "blob" });
-    const zipName = "edited-htmls.zip";
+    if (standalone.length && bundleIds.length === 0) {
+      const zip = new JSZip();
+      for (const f of standalone) {
+        stripLiteralBackslashN(f.doc);
+        const html = serializeWithDoctype(f.doc);
+        const fname = (f.name || "file.html").replace(/[\/\\]/g, "_");
+        zip.file(fname, html);
+      }
+      const blob = await zip.generateAsync({ type: "blob" });
+      const zipName = "edited-htmls.zip";
 
-    if (window.showSaveFilePicker) {
-      try {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: zipName,
-          types: [{ description: "Arquivo ZIP", accept: { "application/zip": [".zip"] } }],
-        });
-        const writable = await handle.createWritable();
-        await writable.write(blob);
-        await writable.close();
-        toast("✅ ZIP salvo: " + (handle.name || zipName));
-      } catch {
+      if (window.showSaveFilePicker) {
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: zipName,
+            types: [{ description: "Arquivo ZIP", accept: { "application/zip": [".zip"] } }],
+          });
+          const writable = await handle.createWritable();
+          await writable.write(blob);
+          await writable.close();
+          toast("✅ ZIP salvo: " + (handle.name || zipName));
+        } catch (err) {
+          downloadBlobAs(blob, zipName);
+          toast("⬇️ ZIP exportado: " + zipName);
+        }
+      } else {
         downloadBlobAs(blob, zipName);
         toast("⬇️ ZIP exportado: " + zipName);
       }
-    } else {
-      downloadBlobAs(blob, zipName);
-      toast("⬇️ ZIP exportado: " + zipName);
     }
-  }
-});
+  });
+}
 
-// ---- Downloads ----
 function downloadAs(content, filename) {
   const blob = new Blob([content], { type: "text/html;charset=utf-8" });
   downloadBlobAs(blob, filename || "edited.html");
@@ -761,105 +786,159 @@ function downloadBlobAs(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-// ---- Filters ----
-$("#search").addEventListener("input", (e) => {
-  state.searchTerm = e.target.value;
-  state.allMode ? renderListAll() : renderList();
-});
-$("#shortToggle").addEventListener("change", (e) => {
-  state.hideShort = e.target.checked;
-  rescanAllOrActive();
-});
-$("#attrsToggle").addEventListener("change", (e) => {
-  state.includeAttrs = e.target.checked;
-  rescanAllOrActive();
-});
-$("#rescanBtn").addEventListener("click", rescanAllOrActive);
-$("#allModeToggle")?.addEventListener("change", (e) => {
-  state.allMode = e.target.checked;
-  rescanAllOrActive();
-});
+function toast(msg) {
+  const existing = document.querySelector(".toast");
+  if (existing) existing.remove();
 
-// =======================
-// TRANSLATION (NOVO)
-// =======================
-async function callTranslateAPI(html, targetLang) {
-  const resp = await fetch("/api/translate", {
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2200);
+}
+
+// ---- Filters ----
+if (searchInput) {
+  searchInput.addEventListener("input", (e) => {
+    state.searchTerm = e.target.value;
+    state.allMode ? renderListAll() : renderList();
+  });
+}
+if (shortToggle) {
+  shortToggle.addEventListener("change", (e) => {
+    state.hideShort = e.target.checked;
+    rescanAllOrActive();
+  });
+}
+if (attrsToggle) {
+  attrsToggle.addEventListener("change", (e) => {
+    state.includeAttrs = e.target.checked;
+    rescanAllOrActive();
+  });
+}
+if (rescanBtn) rescanBtn.addEventListener("click", rescanAllOrActive);
+if (allModeToggle) {
+  allModeToggle.addEventListener("change", (e) => {
+    state.allMode = e.target.checked;
+    rescanAllOrActive();
+  });
+}
+
+// ==========================
+// ✅ TRANSLATE (FIX APPLY)
+// ==========================
+function setTranslatingUI(on) {
+  state.translating = !!on;
+  const label = on ? "Traduzindo..." : null;
+
+  if (translateCurrentBtn) {
+    translateCurrentBtn.disabled = on;
+    if (label) translateCurrentBtn.dataset._old = translateCurrentBtn.textContent;
+    translateCurrentBtn.textContent = on ? "Traduzindo..." : (translateCurrentBtn.dataset._old || "Traduzir atual");
+  }
+
+  if (translateAllBtn) {
+    translateAllBtn.disabled = on;
+    if (label) translateAllBtn.dataset._old = translateAllBtn.textContent;
+    translateAllBtn.textContent = on ? "Traduzindo..." : (translateAllBtn.dataset._old || "Traduzir todos");
+  }
+
+  if (langSelect) langSelect.disabled = on;
+}
+
+async function translateFile(file, targetLang) {
+  // 1) serialize current doc
+  stripLiteralBackslashN(file.doc);
+  const html = serializeWithDoctype(file.doc);
+
+  // 2) call vercel function
+  const r = await fetch("/api/translate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ html, targetLang }),
   });
 
-  const data = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    const msg = data?.error || `Erro HTTP ${resp.status}`;
+  const data = await r.json().catch(() => ({}));
+
+  if (!r.ok) {
+    const msg = data?.error ? String(data.error) : "Falha ao traduzir";
     throw new Error(msg);
   }
-  if (!data?.html) throw new Error("Resposta da API sem html.");
-  return data.html;
-}
 
-async function translateFile(file, targetLang) {
-  stripLiteralBackslashN(file.doc);
-  const original = serializeWithDoctype(file.doc);
+  if (!data?.html || typeof data.html !== "string") {
+    throw new Error("Resposta inválida da API (sem html).");
+  }
 
-  const translated = await callTranslateAPI(original, targetLang);
+  // 3) replace doc with translated doc
+  file.doc = parseToDoc(data.html);
 
-  // Atualiza o doc do arquivo com o HTML traduzido
-  file.doc = parseToDoc(translated);
+  // 4) rescan nodes & mark dirty
+  file.nodes = scanDoc(file.doc);
   file.dirty = true;
 }
 
-async function translateActive() {
-  const file = state.files[state.activeIndex];
-  if (!file) {
-    toast("Abra/seleciona um arquivo primeiro.");
-    return;
-  }
-
-  const targetLang = langSelect?.value || "en";
-  try {
-    setTranslateBusy(true);
-    toast("🌍 Traduzindo arquivo atual...");
-    await translateFile(file, targetLang);
-    updateDirty();
-    await rescanAllOrActive();
-    toast("✅ Tradução aplicada!");
-  } catch (e) {
-    console.error(e);
-    alert("Falha ao traduzir: " + e.message);
-  } finally {
-    setTranslateBusy(false);
-  }
+function getSelectedLang() {
+  // Usa value do select. Pode ser "Espanhol" ou "es", tanto faz pro prompt.
+  if (!langSelect) return "Inglês";
+  return (langSelect.value || langSelect.options?.[langSelect.selectedIndex]?.text || "Inglês").trim();
 }
 
-async function translateAll() {
-  if (!state.files.length) {
-    toast("Abra algum arquivo primeiro.");
-    return;
-  }
-
-  const targetLang = langSelect?.value || "en";
-  try {
-    setTranslateBusy(true);
-    toast("🌍 Traduzindo todos os arquivos...");
-    for (const f of state.files) {
-      await translateFile(f, targetLang);
+if (translateCurrentBtn) {
+  translateCurrentBtn.addEventListener("click", async () => {
+    const f = state.files[state.activeIndex];
+    if (!f) {
+      toast("Abra um arquivo primeiro.");
+      return;
     }
-    updateDirty();
-    await rescanAllOrActive();
-    toast("✅ Tradução aplicada em todos!");
-  } catch (e) {
-    console.error(e);
-    alert("Falha ao traduzir: " + e.message);
-  } finally {
-    setTranslateBusy(false);
-  }
+
+    const lang = getSelectedLang();
+    try {
+      setTranslatingUI(true);
+      await translateFile(f, lang);
+
+      // update UI
+      updateDirty();
+      await rescanAllOrActive();
+      toast(`✅ Traduzido: ${f.name} → ${lang}`);
+    } catch (e) {
+      console.error(e);
+      toast("❌ " + (e?.message || "Erro ao traduzir"));
+      alert("Erro ao traduzir:\n" + (e?.message || e));
+    } finally {
+      setTranslatingUI(false);
+    }
+  });
 }
 
-// Listeners dos botões
-translateCurrentBtn?.addEventListener("click", translateActive);
-translateAllBtn?.addEventListener("click", translateAll);
+if (translateAllBtn) {
+  translateAllBtn.addEventListener("click", async () => {
+    if (!state.files.length) {
+      toast("Abra arquivos primeiro.");
+      return;
+    }
+    const lang = getSelectedLang();
+
+    try {
+      setTranslatingUI(true);
+
+      // traduz um por um (evita timeout e facilita debug)
+      for (let i = 0; i < state.files.length; i++) {
+        const f = state.files[i];
+        await translateFile(f, lang);
+      }
+
+      updateDirty();
+      await rescanAllOrActive();
+      toast(`✅ Traduzido tudo → ${lang}`);
+    } catch (e) {
+      console.error(e);
+      toast("❌ " + (e?.message || "Erro ao traduzir"));
+      alert("Erro ao traduzir:\n" + (e?.message || e));
+    } finally {
+      setTranslatingUI(false);
+    }
+  });
+}
 
 // Initial render
 renderListAll();
