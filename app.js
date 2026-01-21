@@ -827,18 +827,21 @@ if (allModeToggle) {
 // ==========================
 // ✅ TRANSLATE (FIX APPLY + TIMEOUT + BETTER ERRORS)
 // ==========================
+// ==========================
+// ✅ TRANSLATE (FAST: translates only scanned nodes)
+// ==========================
 function setTranslatingUI(on) {
   state.translating = !!on;
 
   if (translateCurrentBtn) {
     translateCurrentBtn.disabled = on;
-    if (!translateCurrentBtn.dataset._old) translateCurrentBtn.dataset._old = translateCurrentBtn.textContent;
+    if (on) translateCurrentBtn.dataset._old = translateCurrentBtn.textContent;
     translateCurrentBtn.textContent = on ? "Traduzindo..." : (translateCurrentBtn.dataset._old || "Traduzir atual");
   }
 
   if (translateAllBtn) {
     translateAllBtn.disabled = on;
-    if (!translateAllBtn.dataset._old) translateAllBtn.dataset._old = translateAllBtn.textContent;
+    if (on) translateAllBtn.dataset._old = translateAllBtn.textContent;
     translateAllBtn.textContent = on ? "Traduzindo..." : (translateAllBtn.dataset._old || "Traduzir todos");
   }
 
@@ -850,49 +853,60 @@ function getSelectedLang() {
   return (langSelect.value || langSelect.options?.[langSelect.selectedIndex]?.text || "Inglês").trim();
 }
 
-async function fetchWithTimeout(url, options = {}, ms = 90_000) {
-  const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), ms);
+// ✅ traduz SOMENTE os snippets (cards) — muito mais rápido e não trava
+async function translateNodes(file, targetLang) {
+  // garante que existe scan atualizado
+  if (!file.nodes || !file.nodes.length) {
+    file.nodes = scanDoc(file.doc);
+  }
+
+  // pega só os textos atuais do editor
+  const texts = file.nodes.map((n) => n.snippet);
+
+  // nada pra traduzir
+  if (!texts.length) return;
+
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), 25000);
+
+  let data;
   try {
-    const r = await fetch(url, { ...options, signal: controller.signal });
-    return r;
+    const r = await fetch("/api/translate", {
+      method: "POST",
+      signal: ctrl.signal,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ texts, targetLang }),
+    });
+
+    data = await r.json().catch(() => ({}));
+
+    if (!r.ok) {
+      const msg = data?.error ? String(data.error) : "Falha ao traduzir";
+      throw new Error(msg);
+    }
   } finally {
     clearTimeout(t);
   }
-}
 
-async function translateFile(file, targetLang) {
-  // 1) serialize current doc
-  stripLiteralBackslashN(file.doc);
-  const html = serializeWithDoctype(file.doc);
-
-  // 2) call vercel function (com timeout)
-  const r = await fetchWithTimeout(
-    "/api/translate",
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ html, targetLang }),
-    },
-    120_000
-  );
-
-  const data = await r.json().catch(() => ({}));
-
-  if (!r.ok) {
-    const msg = data?.error ? String(data.error) : `Falha ao traduzir (HTTP ${r.status})`;
-    throw new Error(msg);
+  if (!Array.isArray(data?.texts)) {
+    throw new Error("Resposta inválida da API (sem texts[]).");
+  }
+  if (data.texts.length !== texts.length) {
+    throw new Error(`Quantidade de traduções não bate. Esperado ${texts.length}, veio ${data.texts.length}.`);
   }
 
-  if (!data?.html || typeof data.html !== "string") {
-    throw new Error("Resposta inválida da API (sem html).");
+  // aplica de volta nos NODES do DOM (sem mexer em HTML inteiro)
+  for (let i = 0; i < file.nodes.length; i++) {
+    const entry = file.nodes[i];
+    const newVal = (data.texts[i] == null ? "" : String(data.texts[i]));
+
+    if (entry.type === "text") entry.node.nodeValue = newVal;
+    else if (entry.type === "attr") entry.node.setAttribute(entry.key, newVal);
+
+    entry.snippet = newVal;
+    entry.length = newVal.length;
   }
 
-  // 3) replace doc with translated doc
-  file.doc = parseToDoc(data.html);
-
-  // 4) rescan nodes & mark dirty
-  file.nodes = scanDoc(file.doc);
   file.dirty = true;
 }
 
@@ -905,10 +919,13 @@ if (translateCurrentBtn) {
     }
 
     const lang = getSelectedLang();
-
     try {
       setTranslatingUI(true);
-      await translateFile(f, lang);
+
+      // ✅ importante: rescan antes (pega o texto atualizado do editor)
+      f.nodes = scanDoc(f.doc);
+
+      await translateNodes(f, lang);
 
       updateDirty();
       await rescanAllOrActive();
@@ -929,15 +946,18 @@ if (translateAllBtn) {
       toast("Abra arquivos primeiro.");
       return;
     }
-    const lang = getSelectedLang();
 
+    const lang = getSelectedLang();
     try {
       setTranslatingUI(true);
 
-      // traduz um por um (evita timeout e facilita debug)
       for (let i = 0; i < state.files.length; i++) {
         const f = state.files[i];
-        await translateFile(f, lang);
+
+        // ✅ rescan por arquivo antes de traduzir
+        f.nodes = scanDoc(f.doc);
+
+        await translateNodes(f, lang);
       }
 
       updateDirty();
@@ -952,6 +972,3 @@ if (translateAllBtn) {
     }
   });
 }
-
-// Initial render
-renderListAll();

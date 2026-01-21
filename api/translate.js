@@ -1,70 +1,133 @@
 // api/translate.js
-
-async function readJsonBody(req) {
-    // Em alguns ambientes (Next API Routes), req.body já vem pronto
-    if (req.body && typeof req.body === "object") return req.body;
-
-    // Em Vercel (Serverless function pura), precisa ler o stream
-    const chunks = [];
-    for await (const chunk of req) chunks.push(chunk);
-    const raw = Buffer.concat(chunks).toString("utf8").trim();
-    if (!raw) return null;
-
-    try {
-        return JSON.parse(raw);
-    } catch {
-        return null;
-    }
-}
-
-function unwrapCodeFences(s) {
-    if (!s) return s;
-    const t = String(s).trim();
-
-    // Remove ```html ... ``` ou ``` ... ```
-    if (t.startsWith("```")) {
-        // tira primeira linha ```xxx
-        const firstNewline = t.indexOf("\n");
-        const withoutFirst = firstNewline >= 0 ? t.slice(firstNewline + 1) : "";
-        // tira último ```
-        const lastFence = withoutFirst.lastIndexOf("```");
-        const withoutLast = lastFence >= 0 ? withoutFirst.slice(0, lastFence) : withoutFirst;
-        return withoutLast.trim();
-    }
-
-    return t;
-}
-
 export default async function handler(req, res) {
     try {
-        // (Opcional, mas ajuda em debug/local)
-        res.setHeader("Access-Control-Allow-Origin", "*");
-        res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
-        res.setHeader("Access-Control-Allow-Headers", "Content-Type,Authorization");
-
-        if (req.method === "OPTIONS") return res.status(200).end();
-        if (req.method !== "POST") {
-            return res.status(405).json({ error: "Method Not Allowed" });
-        }
-
-        const body = await readJsonBody(req);
-        if (!body) {
-            return res.status(400).json({ error: "Invalid JSON body" });
-        }
-
-        const { html, targetLang } = body || {};
-        if (!html || !targetLang) {
-            return res.status(400).json({
-                error: "Missing html or targetLang",
-            });
-        }
+        if (req.method !== "POST") return res.status(405).json({ error: "Method Not Allowed" });
 
         const apiKey = process.env.OPENAI_API_KEY;
-        if (!apiKey) {
-            return res.status(500).json({
-                error: "Missing OPENAI_API_KEY env var",
-            });
+        if (!apiKey) return res.status(500).json({ error: "Missing OPENAI_API_KEY env var" });
+
+        const body = req.body || {};
+        const targetLang = (body.targetLang || "").toString().trim();
+
+        if (!targetLang) return res.status(400).json({ error: "Missing targetLang" });
+
+        // ✅ MODO NOVO (RECOMENDADO): traduz apenas lista de textos (rápido)
+        if (Array.isArray(body.texts)) {
+            const texts = body.texts.map((t) => (t == null ? "" : String(t)));
+
+            if (!texts.length) return res.status(400).json({ error: "Missing texts" });
+
+            // Limite de segurança (evita payload gigante)
+            if (texts.length > 400) {
+                return res.status(400).json({ error: "Too many texts (max 400). Use batching." });
+            }
+
+            const systemPrompt = `
+Você é um tradutor profissional.
+Objetivo: traduzir uma LISTA de textos curtos para o idioma de destino.
+
+REGRAS OBRIGATÓRIAS:
+- Traduza APENAS o conteúdo humano.
+- NÃO altere placeholders/variáveis: {{...}}, %%...%%, {{$...}}, \${...}
+- NÃO adicione explicações, markdown ou comentários.
+- Retorne SOMENTE um JSON válido no formato: ["...", "...", ...] com o MESMO tamanho da lista.
+- Se um item for número/código curto e não fizer sentido traduzir, retorne exatamente igual.
+`.trim();
+
+            const userPrompt = `
+Idioma de destino: ${targetLang}
+
+LISTA (JSON):
+${JSON.stringify(texts)}
+`.trim();
+
+            const ctrl = new AbortController();
+            const timeout = setTimeout(() => ctrl.abort(), 25000);
+
+            let data;
+            try {
+                const r = await fetch("https://api.openai.com/v1/responses", {
+                    method: "POST",
+                    signal: ctrl.signal,
+                    headers: {
+                        "Content-Type": "application/json",
+                        Authorization: `Bearer ${apiKey}`,
+                    },
+                    body: JSON.stringify({
+                        model: "gpt-4.1-mini",
+                        temperature: 0.2,
+                        input: [
+                            { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
+                            { role: "user", content: [{ type: "input_text", text: userPrompt }] },
+                        ],
+                    }),
+                });
+
+                data = await r.json();
+
+                if (!r.ok) {
+                    return res.status(r.status).json({
+                        error: data?.error?.message || "OpenAI API error",
+                        raw: data,
+                    });
+                }
+            } finally {
+                clearTimeout(timeout);
+            }
+
+            // Extrai output_text
+            let out = "";
+            if (typeof data?.output_text === "string" && data.output_text.trim()) {
+                out = data.output_text.trim();
+            } else if (Array.isArray(data?.output)) {
+                for (const block of data.output) {
+                    if (!block?.content) continue;
+                    for (const part of block.content) {
+                        if (part?.type === "output_text" && part?.text) out += part.text;
+                    }
+                }
+                out = out.trim();
+            }
+
+            if (!out) {
+                return res.status(500).json({ error: "Empty output from OpenAI", raw: data });
+            }
+
+            // Parse robusto: tenta pegar o primeiro JSON array dentro do texto
+            let parsed = null;
+            try {
+                parsed = JSON.parse(out);
+            } catch {
+                const a = out.indexOf("[");
+                const b = out.lastIndexOf("]");
+                if (a !== -1 && b !== -1 && b > a) {
+                    const slice = out.slice(a, b + 1);
+                    parsed = JSON.parse(slice);
+                }
+            }
+
+            if (!Array.isArray(parsed)) {
+                return res.status(500).json({
+                    error: "Could not parse JSON array from model output",
+                    rawText: out,
+                    raw: data,
+                });
+            }
+
+            // garante tamanho
+            if (parsed.length !== texts.length) {
+                return res.status(500).json({
+                    error: `Returned array length mismatch. Expected ${texts.length}, got ${parsed.length}`,
+                    rawText: out,
+                });
+            }
+
+            return res.status(200).json({ texts: parsed });
         }
+
+        // (Opcional) modo antigo (HTML inteiro) — mantém compatibilidade
+        const html = body.html;
+        if (!html) return res.status(400).json({ error: "Missing html or texts" });
 
         const systemPrompt = `
 Você é um tradutor profissional.
@@ -85,60 +148,52 @@ HTML:
 ${html}
 `.trim();
 
-        // Timeout para não ficar pendurado
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 90_000);
+        const ctrl = new AbortController();
+        const timeout = setTimeout(() => ctrl.abort(), 25000);
 
-        const response = await fetch("https://api.openai.com/v1/responses", {
-            method: "POST",
-            signal: controller.signal,
-            headers: {
-                "Content-Type": "application/json",
-                Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-                model: "gpt-4.1-mini",
-                temperature: 0.2,
-                input: [
-                    {
-                        role: "system",
-                        content: [{ type: "input_text", text: systemPrompt }],
-                    },
-                    {
-                        role: "user",
-                        content: [{ type: "input_text", text: userPrompt }],
-                    },
-                ],
-            }),
-        }).finally(() => clearTimeout(timeout));
-
-        const data = await response.json().catch(() => ({}));
-
-        if (!response.ok) {
-            return res.status(response.status).json({
-                error: data?.error?.message || "OpenAI API error",
-                raw: data,
+        let data;
+        try {
+            const r = await fetch("https://api.openai.com/v1/responses", {
+                method: "POST",
+                signal: ctrl.signal,
+                headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${apiKey}`,
+                },
+                body: JSON.stringify({
+                    model: "gpt-4.1-mini",
+                    temperature: 0.2,
+                    input: [
+                        { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
+                        { role: "user", content: [{ type: "input_text", text: userPrompt }] },
+                    ],
+                }),
             });
+
+            data = await r.json();
+
+            if (!r.ok) {
+                return res.status(r.status).json({
+                    error: data?.error?.message || "OpenAI API error",
+                    raw: data,
+                });
+            }
+        } finally {
+            clearTimeout(timeout);
         }
 
-        // 🔥 EXTRAÇÃO CORRETA DO TEXTO
         let translatedHTML = "";
-
-        if (typeof data.output_text === "string" && data.output_text.trim()) {
+        if (typeof data.output_text === "string") {
             translatedHTML = data.output_text.trim();
         } else if (Array.isArray(data.output)) {
             for (const block of data.output) {
                 if (!block?.content) continue;
                 for (const part of block.content) {
-                    if (part?.type === "output_text" && part.text) {
-                        translatedHTML += part.text;
-                    }
+                    if (part.type === "output_text" && part.text) translatedHTML += part.text;
                 }
             }
             translatedHTML = translatedHTML.trim();
         }
-
-        translatedHTML = unwrapCodeFences(translatedHTML);
 
         if (!translatedHTML) {
             return res.status(500).json({
@@ -147,14 +202,14 @@ ${html}
             });
         }
 
-        return res.status(200).json({
-            html: translatedHTML,
-        });
+        return res.status(200).json({ html: translatedHTML });
     } catch (err) {
+        const msg =
+            err?.name === "AbortError"
+                ? "Timeout in translate function (took too long)"
+                : err?.message || "Internal server error";
+
         console.error("TRANSLATE ERROR:", err);
-        const isAbort = err?.name === "AbortError";
-        return res.status(500).json({
-            error: isAbort ? "OpenAI request timeout" : err?.message || "Internal server error",
-        });
+        return res.status(500).json({ error: msg });
     }
 }
