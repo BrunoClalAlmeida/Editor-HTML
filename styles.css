@@ -278,144 +278,6 @@ body {
   border-color: rgba(245, 158, 11, 0.2);
 }
 
-.btn-group-sm {
-  display: flex;
-  gap: 2px;
-  padding: 2px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-}
-
-/* ===== View Controls ===== */
-.viewControls {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 16px;
-}
-
-.control-group {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--text-muted);
-}
-
-.control-group select {
-  padding: 6px 10px;
-  font-family: var(--font-sans);
-  font-size: 13px;
-  color: var(--text-primary);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-default);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-
-.control-group input[type="range"] {
-  width: 80px;
-  accent-color: var(--accent-primary);
-}
-
-.font-size-value {
-  font-family: var(--font-mono);
-  font-size: 12px;
-  min-width: 35px;
-}
-
-/* Toggle Switch */
-.toggle-switch {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  cursor: pointer;
-}
-
-.toggle-switch input {
-  display: none;
-}
-
-.toggle-slider {
-  position: relative;
-  width: 40px;
-  height: 22px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border-default);
-  border-radius: 11px;
-  transition: all 0.2s ease;
-}
-
-.toggle-slider::after {
-  content: '';
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 16px;
-  height: 16px;
-  background: var(--text-muted);
-  border-radius: 50%;
-  transition: all 0.2s ease;
-}
-
-.toggle-switch input:checked+.toggle-slider {
-  background: var(--accent-primary-dim);
-  border-color: var(--accent-primary);
-}
-
-.toggle-switch input:checked+.toggle-slider::after {
-  left: 20px;
-  background: var(--accent-primary);
-}
-
-.toggle-label {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.toggle-switch input:checked~.toggle-label {
-  color: var(--accent-primary);
-}
-
-/* Checkbox */
-.checkbox-label {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  cursor: pointer;
-}
-
-.checkbox-label input {
-  display: none;
-}
-
-.checkbox-custom {
-  width: 18px;
-  height: 18px;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-default);
-  border-radius: 4px;
-  position: relative;
-  transition: all 0.2s ease;
-}
-
-.checkbox-label input:checked+.checkbox-custom {
-  background: var(--accent-primary);
-  border-color: var(--accent-primary);
-}
-
-.checkbox-label input:checked+.checkbox-custom::after {
-  content: '✓';
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  font-size: 12px;
-  color: var(--bg-deep);
-}
-
 /* ===== Tabs Section ===== */
 .tabs-wrap {
   background: var(--bg-secondary);
@@ -539,6 +401,45 @@ body {
 
 .search-box input::placeholder {
   color: var(--text-muted);
+}
+
+/* Checkbox */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.checkbox-label input {
+  display: none;
+}
+
+.checkbox-custom {
+  width: 18px;
+  height: 18px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.checkbox-label input:checked+.checkbox-custom {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+}
+
+.checkbox-label input:checked+.checkbox-custom::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 12px;
+  color: var(--bg-deep);
 }
 
 /* Replace Box */
@@ -744,28 +645,6 @@ body {
   color: var(--text-muted);
   word-break: break-all;
   opacity: 0.7;
-}
-
-/* ===== Density Variants ===== */
-body[data-density="compact"] .card {
-  padding: 10px;
-}
-
-body[data-density="compact"] .card textarea {
-  min-height: 48px;
-  max-height: 120px;
-  padding: 8px;
-  font-size: 12px;
-}
-
-body[data-density="compact"] .groupBody {
-  gap: 10px;
-  padding: 12px;
-}
-
-body[data-density="compact"] .btn {
-  padding: 6px 10px;
-  font-size: 12px;
 }
 
 /* ===== Toast ===== */

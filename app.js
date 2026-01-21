@@ -1,4 +1,5 @@
 // Fast HTML Editor v8.0 – Visual redesign with modern UI
+// (View Controls removidos: Ver todos juntos / densidade / fonte / expandir / recolher)
 
 const state = {
   files: [],
@@ -7,7 +8,7 @@ const state = {
   hideShort: true,
   searchTerm: '',
   openCounter: 0,
-  allMode: true,
+  allMode: true, // fica sempre "ver todos juntos"
 };
 
 const zipBundles = [];
@@ -20,34 +21,7 @@ const listEl = $('#textList');
 const dirtyText = $('#dirtyText');
 const fileInfo = $('#fileInfo');
 
-const densitySelect = $('#densitySelect');
-const fontSizeRange = $('#fontSizeRange');
-const fontSizeLabel = $('#fontSizeLabel');
-const expandAllBtn = $('#expandAllBtn');
-const collapseAllBtn = $('#collapseAllBtn');
-
 const hasFS = 'showOpenFilePicker' in window && 'showSaveFilePicker' in window;
-
-// ---- UI Density & Font size ----
-document.body.dataset.density = densitySelect.value;
-densitySelect.addEventListener('change', () => {
-  document.body.dataset.density = densitySelect.value;
-});
-
-fontSizeRange.addEventListener('input', () => {
-  const v = fontSizeRange.value;
-  fontSizeLabel.textContent = v + 'px';
-  document.documentElement.style.setProperty('--base-font', v + 'px');
-  document.querySelectorAll('.card textarea').forEach(ta => ta.style.fontSize = v + 'px');
-});
-
-expandAllBtn.addEventListener('click', () => {
-  document.querySelectorAll('.group').forEach(g => g.classList.remove('collapsed'));
-});
-
-collapseAllBtn.addEventListener('click', () => {
-  document.querySelectorAll('.group').forEach(g => g.classList.add('collapsed'));
-});
 
 // ---- Sanitização ----
 function normalizeHTML(src) {
@@ -106,9 +80,7 @@ if (openZipBtn) {
       if (!handles?.length) return;
 
       const limited = handles.slice(0, 10);
-      if (handles.length > 10) {
-        alert('Só os 10 primeiros ZIPs serão abertos.');
-      }
+      if (handles.length > 10) alert('Só os 10 primeiros ZIPs serão abertos.');
 
       let totalHtmls = 0;
 
@@ -122,9 +94,7 @@ if (openZipBtn) {
 
         const htmlEntries = [];
         zip.forEach((relativePath, zipEntry) => {
-          if (!zipEntry.dir && /\.html?$/i.test(relativePath)) {
-            htmlEntries.push(zipEntry);
-          }
+          if (!zipEntry.dir && /\.html?$/i.test(relativePath)) htmlEntries.push(zipEntry);
         });
 
         for (const entry of htmlEntries) {
@@ -293,6 +263,7 @@ function scanDoc(doc) {
       return NodeFilter.FILTER_ACCEPT;
     }
   });
+
   let id = 1;
   while (walker.nextNode()) {
     const node = walker.currentNode;
@@ -316,12 +287,13 @@ function scanDoc(doc) {
       }
     }
   }
+
   return nodes;
 }
 
 async function rescanAllOrActive() {
   if (state.allMode) {
-    for (const f of state.files) { f.nodes = scanDoc(f.doc); }
+    for (const f of state.files) f.nodes = scanDoc(f.doc);
     renderListAll();
   } else {
     await rescanActive();
@@ -449,7 +421,7 @@ function renderListAll() {
   });
 }
 
-// ---- Render: Single Mode ----
+// ---- Render: Single Mode (mantido por compatibilidade, mas não é usado) ----
 function renderList() {
   const file = state.files[state.activeIndex];
   if (!file) { listEl.innerHTML = ''; return; }
@@ -513,11 +485,9 @@ function renderList() {
 // ---- Editing ----
 function onEdit(entry, newVal) {
   const file = state.files[state.activeIndex]; if (!file) return;
-  if (entry.type === 'text') {
-    entry.node.nodeValue = newVal;
-  } else if (entry.type === 'attr') {
-    entry.node.setAttribute(entry.key, newVal);
-  }
+  if (entry.type === 'text') entry.node.nodeValue = newVal;
+  else if (entry.type === 'attr') entry.node.setAttribute(entry.key, newVal);
+
   entry.snippet = newVal;
   entry.length = newVal.length;
   file.dirty = true;
@@ -525,11 +495,9 @@ function onEdit(entry, newVal) {
 }
 
 function onEditFromAll(file, entry, newVal) {
-  if (entry.type === 'text') {
-    entry.node.nodeValue = newVal;
-  } else if (entry.type === 'attr') {
-    entry.node.setAttribute(entry.key, newVal);
-  }
+  if (entry.type === 'text') entry.node.nodeValue = newVal;
+  else if (entry.type === 'attr') entry.node.setAttribute(entry.key, newVal);
+
   entry.snippet = newVal;
   entry.length = newVal.length;
   file.dirty = true;
@@ -548,13 +516,20 @@ $('#replaceAllBtn').addEventListener('click', () => {
     if (entry.snippet.includes(find)) {
       const newVal = entry.snippet.split(find).join(repl);
       if (newVal !== entry.snippet) {
-        if (entry.type === 'text') { entry.node.nodeValue = newVal; }
-        else if (entry.type === 'attr') { entry.node.setAttribute(entry.key, newVal); }
-        entry.snippet = newVal; entry.length = newVal.length; count++;
+        if (entry.type === 'text') entry.node.nodeValue = newVal;
+        else if (entry.type === 'attr') entry.node.setAttribute(entry.key, newVal);
+        entry.snippet = newVal;
+        entry.length = newVal.length;
+        count++;
       }
     }
   });
-  if (count > 0) { file.dirty = true; updateDirty(); state.allMode ? renderListAll() : renderList(); }
+
+  if (count > 0) {
+    file.dirty = true;
+    updateDirty();
+    state.allMode ? renderListAll() : renderList();
+  }
   toast(`${count} substituições aplicadas`);
 });
 
@@ -589,7 +564,8 @@ async function saveFile(file) {
 }
 
 $('#saveBtn').addEventListener('click', async () => {
-  const f = state.files[state.activeIndex]; if (!f) { toast('Selecione um arquivo primeiro', 'info'); return; }
+  const f = state.files[state.activeIndex];
+  if (!f) { toast('Selecione um arquivo primeiro'); return; }
   await saveFile(f);
 });
 
@@ -598,7 +574,8 @@ $('#saveAllBtn').addEventListener('click', async () => {
 });
 
 $('#downloadBtn').addEventListener('click', () => {
-  const f = state.files[state.activeIndex]; if (!f) return;
+  const f = state.files[state.activeIndex];
+  if (!f) return;
   stripLiteralBackslashN(f.doc);
   const html = serializeWithDoctype(f.doc);
   downloadAs(html, f.name);
@@ -606,14 +583,8 @@ $('#downloadBtn').addEventListener('click', () => {
 
 // ---- Export ZIP ----
 document.getElementById('exportZipBtn').addEventListener('click', async () => {
-  if (!window.JSZip) {
-    alert('JSZip não carregou.');
-    return;
-  }
-  if (!state.files.length) {
-    alert('Nenhum arquivo aberto.');
-    return;
-  }
+  if (!window.JSZip) { alert('JSZip não carregou.'); return; }
+  if (!state.files.length) { alert('Nenhum arquivo aberto.'); return; }
 
   const fromBundles = state.files.filter(f => f.zipBundleId);
   const standalone = state.files.filter(f => !f.zipBundleId);
@@ -638,13 +609,9 @@ document.getElementById('exportZipBtn').addEventListener('click', async () => {
       const blob = await zip.generateAsync({ type: 'blob' });
 
       let zipName = name || 'edited.zip';
-      if (!zipName.toLowerCase().endsWith('.zip')) {
-        zipName += '.zip';
-      }
+      if (!zipName.toLowerCase().endsWith('.zip')) zipName += '.zip';
       const dot = zipName.lastIndexOf('.');
-      if (dot > 0) {
-        zipName = zipName.slice(0, dot) + '-edited' + zipName.slice(dot);
-      }
+      if (dot > 0) zipName = zipName.slice(0, dot) + '-edited' + zipName.slice(dot);
 
       if (window.showSaveFilePicker) {
         try {
@@ -681,7 +648,7 @@ document.getElementById('exportZipBtn').addEventListener('click', async () => {
 
     try {
       const blob = await zip.generateAsync({ type: 'blob' });
-      let zipName = 'edited-htmls.zip';
+      const zipName = 'edited-htmls.zip';
 
       if (window.showSaveFilePicker) {
         try {
@@ -735,11 +702,13 @@ function toast(msg) {
 }
 
 // ---- Filters ----
-$('#search').addEventListener('input', (e) => { state.searchTerm = e.target.value; state.allMode ? renderListAll() : renderList(); });
+$('#search').addEventListener('input', (e) => {
+  state.searchTerm = e.target.value;
+  state.allMode ? renderListAll() : renderList();
+});
 $('#shortToggle').addEventListener('change', (e) => { state.hideShort = e.target.checked; rescanAllOrActive(); });
 $('#attrsToggle').addEventListener('change', (e) => { state.includeAttrs = e.target.checked; rescanAllOrActive(); });
 $('#rescanBtn').addEventListener('click', rescanAllOrActive);
-$('#allModeToggle').addEventListener('change', (e) => { state.allMode = e.target.checked; rescanAllOrActive(); });
 
 // Initial render
 renderListAll();
