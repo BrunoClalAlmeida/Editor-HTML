@@ -13,7 +13,7 @@
     <header class="header">
       <div class="header-top">
         <div class="logo">
-          <div class="logo-icon" aria-hidden="true">
+          <div class="logo-icon">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
               <polyline points="14 2 14 8 20 8" />
@@ -30,15 +30,16 @@
         <span id="dirtyText" class="status-badge">Nenhuma alteração.</span>
       </div>
 
+      <!-- Toolbar principal -->
       <div class="toolbar">
         <div class="btn-group">
-          <button id="openBtn" class="btn btn-primary" type="button">
+          <button id="openBtn" class="btn btn-primary">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
             </svg>
             Abrir HTML(s)
           </button>
-          <button id="openZipBtn" class="btn" type="button">
+          <button id="openZipBtn" class="btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 8v13H3V8" />
               <path d="M23 3H1v5h22V3z" />
@@ -49,7 +50,7 @@
         </div>
 
         <div class="btn-group">
-          <button id="reloadBtn" class="btn" type="button">
+          <button id="reloadBtn" class="btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 2v6h-6" />
               <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
@@ -58,7 +59,7 @@
             </svg>
             Recarregar
           </button>
-          <button id="rescanBtn" class="btn" type="button">
+          <button id="rescanBtn" class="btn">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="11" cy="11" r="8" />
               <path d="m21 21-4.35-4.35" />
@@ -68,7 +69,7 @@
         </div>
 
         <div class="btn-group btn-group-success">
-          <button id="saveBtn" class="btn btn-success" type="button">
+          <button id="saveBtn" class="btn btn-success">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
               <polyline points="17 21 17 13 7 13 7 21" />
@@ -76,7 +77,7 @@
             </svg>
             Salvar atual
           </button>
-          <button id="saveAllBtn" class="btn btn-success" type="button">
+          <button id="saveAllBtn" class="btn btn-success">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
               <polyline points="17 21 17 13 7 13 7 21" />
@@ -87,7 +88,7 @@
         </div>
 
         <div class="btn-group btn-group-warning">
-          <button id="exportZipBtn" class="btn btn-warning" type="button">
+          <button id="exportZipBtn" class="btn btn-warning">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 8v13H3V8" />
               <path d="M23 3H1v5h22V3z" />
@@ -95,7 +96,7 @@
             </svg>
             Exportar ZIP
           </button>
-          <button id="downloadBtn" class="btn" title="Fallback: baixar arquivo atual" type="button">
+          <button id="downloadBtn" class="btn" title="Fallback: baixar arquivo atual">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
               <polyline points="7 10 12 15 17 10" />
@@ -104,19 +105,14 @@
             Baixar atual
           </button>
         </div>
+      </div>
 
-        <!-- Tradução GPT -->
-        <div class="btn-group translate-group" aria-label="Tradução">
+      <!-- Barra de tradução (NOVO) -->
+      <div class="translateBar" id="translateBar">
+        <div class="btn-group">
           <div class="select-wrap">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M5 8h14" />
-              <path d="M7 8c0 6 4 11 10 11" />
-              <path d="M7 19h10" />
-              <path d="M10 5h4" />
-              <path d="M12 5v3" />
-            </svg>
-            <select id="langSelect" aria-label="Idioma alvo">
-              <option value="en">Inglês</option>
+            <select id="langSelect" aria-label="Idioma de destino">
+              <option value="en" selected>Inglês</option>
               <option value="es">Espanhol</option>
               <option value="fr">Francês</option>
               <option value="it">Italiano</option>
@@ -131,10 +127,27 @@
               <option value="pt">Português</option>
             </select>
           </div>
-          <button id="translateActiveBtn" class="btn" type="button" title="Traduz o arquivo selecionado">
+
+          <button id="translateCurrentBtn" class="btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="m5 8 6 6" />
+              <path d="m4 14 6-6 2-2" />
+              <path d="M2 4h8" />
+              <path d="M7 2v2" />
+              <path d="M22 22l-5-10-5 10" />
+              <path d="M14 18h6" />
+            </svg>
             Traduzir atual
           </button>
-          <button id="translateAllBtn" class="btn" type="button" title="Traduz todos os arquivos abertos">
+
+          <button id="translateAllBtn" class="btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 7h18" />
+              <path d="M6 7v13" />
+              <path d="M18 7v13" />
+              <path d="M9 11h6" />
+              <path d="M9 15h6" />
+            </svg>
             Traduzir todos
           </button>
         </div>
@@ -150,30 +163,28 @@
 
     <main class="main">
       <section class="panel left">
+        <!-- ✅ CONTROLS AJUSTADO: checkboxes abaixo e centralizados -->
         <div class="controls">
-          <div class="search-area">
-            <div class="search-box">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="11" cy="11" r="8" />
-                <path d="m21 21-4.35-4.35" />
-              </svg>
-              <input type="search" id="search" placeholder="Filtrar por conteúdo…" />
-            </div>
+          <div class="search-box">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
+            </svg>
+            <input type="search" id="search" placeholder="Filtrar por conteúdo…" />
+          </div>
 
-            <!-- checkboxes abaixo e centralizados -->
-            <div class="options-row">
-              <label class="checkbox-label">
-                <input type="checkbox" id="shortToggle" checked>
-                <span class="checkbox-custom"></span>
-                Ocultar textos curtos (&lt; 3)
-              </label>
+          <div class="checksRow">
+            <label class="checkbox-label">
+              <input type="checkbox" id="shortToggle" checked>
+              <span class="checkbox-custom"></span>
+              Ocultar textos curtos (&lt; 3)
+            </label>
 
-              <label class="checkbox-label">
-                <input type="checkbox" id="attrsToggle">
-                <span class="checkbox-custom"></span>
-                Incluir atributos (title/alt/aria-label)
-              </label>
-            </div>
+            <label class="checkbox-label">
+              <input type="checkbox" id="attrsToggle">
+              <span class="checkbox-custom"></span>
+              Incluir atributos (title/alt/aria-label)
+            </label>
           </div>
         </div>
 
@@ -185,14 +196,17 @@
             </svg>
             <input type="text" id="findInput" placeholder="Buscar…" />
           </div>
+
           <div class="replace-arrow">→</div>
+
           <div class="replace-input">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
             </svg>
             <input type="text" id="replaceInput" placeholder="Substituir por…" />
           </div>
-          <button id="replaceAllBtn" class="btn" type="button">Substituir tudo (Arquivo atual)</button>
+
+          <button id="replaceAllBtn" class="btn">Substituir tudo (Arquivo atual)</button>
         </div>
 
         <div class="list" id="textList"></div>
