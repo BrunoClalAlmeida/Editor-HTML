@@ -1,13 +1,14 @@
-// Fast HTML Editor – v9 (UI simplificada + Tradução via API no Vercel)
+// Fast HTML Editor – app.js (com tradução via /api/translate)
 
+// ---- State ----
 const state = {
   files: [],
   activeIndex: -1,
   includeAttrs: false,
   hideShort: true,
-  searchTerm: '',
+  searchTerm: "",
   openCounter: 0,
-  allMode: true, // fica sempre "ver todos juntos" (sem a barra que você não quer)
+  allMode: true,
 };
 
 const zipBundles = [];
@@ -15,23 +16,29 @@ let zipBundleCounter = 0;
 
 // ---- Helpers ----
 const $ = (s) => document.querySelector(s);
+const tabsEl = $("#tabs");
+const listEl = $("#textList");
+const dirtyText = $("#dirtyText");
+const fileInfo = $("#fileInfo");
 
-const tabsEl = $('#tabs');
-const listEl = $('#textList');
-const dirtyText = $('#dirtyText');
-const fileInfo = $('#fileInfo');
+const hasFS = "showOpenFilePicker" in window && "showSaveFilePicker" in window;
 
-const langSelect = $('#langSelect');
-const translateActiveBtn = $('#translateActiveBtn');
-const translateAllBtn = $('#translateAllBtn');
+// ---- Translate UI (NOVO) ----
+const langSelect = $("#langSelect");
+const translateCurrentBtn = $("#translateCurrentBtn");
+const translateAllBtn = $("#translateAllBtn");
 
-const hasFS = 'showOpenFilePicker' in window && 'showSaveFilePicker' in window;
+function setTranslateBusy(isBusy) {
+  if (translateCurrentBtn) translateCurrentBtn.disabled = isBusy;
+  if (translateAllBtn) translateAllBtn.disabled = isBusy;
+  if (langSelect) langSelect.disabled = isBusy;
+}
 
 // ---- Sanitização ----
 function normalizeHTML(src) {
   if (!src) return src;
-  let s = src.replace(/^\uFEFF/, '');
-  s = s.replace(/^(\s*\\n)+/, '').replace(/^\s*\n+/, '');
+  let s = src.replace(/^\uFEFF/, "");
+  s = s.replace(/^(\s*\\n)+/, "").replace(/^\s*\n+/, "");
   return s;
 }
 
@@ -47,42 +54,79 @@ function stripLiteralBackslashN(doc) {
   const w = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (w.nextNode()) nodes.push(w.currentNode);
-  nodes.forEach((t) => (t.nodeValue = t.nodeValue.replace(/\\n+/g, '')));
+  nodes.forEach((t) => (t.nodeValue = t.nodeValue.replace(/\\n+/g, "")));
+}
+
+// ---- Parse / Serialize ----
+function parseToDoc(text) {
+  const parser = new DOMParser();
+  const html = normalizeHTML(text);
+  const doc = parser.parseFromString(html, "text/html");
+  stripLiteralBackslashN(doc);
+  return doc;
+}
+
+function serializeWithDoctype(doc) {
+  const dt = doc.doctype
+    ? `<!DOCTYPE ${doc.doctype.name}${doc.doctype.publicId ? ` PUBLIC "${doc.doctype.publicId}"` : ""
+    }${doc.doctype.systemId ? ` "${doc.doctype.systemId}"` : ""}>`
+    : "";
+  return dt + doc.documentElement.outerHTML;
+}
+
+// ---- Toast ----
+function toast(msg) {
+  const existing = document.querySelector(".toast");
+  if (existing) existing.remove();
+
+  const t = document.createElement("div");
+  t.className = "toast";
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 2400);
 }
 
 // ---- Open Files ----
-$('#openBtn').addEventListener('click', async () => {
+$("#openBtn").addEventListener("click", async () => {
   try {
     const handles = await window.showOpenFilePicker({
       multiple: true,
       excludeAcceptAllOption: true,
-      types: [{ description: 'Arquivos HTML', accept: { 'text/html': ['.html', '.htm'] } }],
+      types: [
+        { description: "Arquivos HTML", accept: { "text/html": [".html", ".htm"] } },
+      ],
     });
     if (!handles?.length) return;
-    for (const handle of handles.slice(0, 10)) await openOne(handle);
+    for (const handle of handles.slice(0, 5)) await openOne(handle);
     if (state.activeIndex === -1 && state.files.length > 0) setActive(0);
   } catch (e) {
-    if (e.name !== 'AbortError') alert('Não foi possível abrir: ' + e.message);
+    if (e.name !== "AbortError") alert("Não foi possível abrir: " + e.message);
   }
 });
 
 // ---- Open ZIP ----
-const openZipBtn = $('#openZipBtn');
+const openZipBtn = $("#openZipBtn");
 if (openZipBtn) {
-  openZipBtn.addEventListener('click', async () => {
+  openZipBtn.addEventListener("click", async () => {
     try {
-      if (!window.JSZip) return alert('JSZip não carregado.');
-      if (!window.showOpenFilePicker) return alert('Navegador não suporta showOpenFilePicker.');
+      if (!window.JSZip) {
+        alert("JSZip não carregado.");
+        return;
+      }
+      if (!window.showOpenFilePicker) {
+        alert("Navegador não suporta showOpenFilePicker.");
+        return;
+      }
 
       const handles = await window.showOpenFilePicker({
         multiple: true,
         excludeAcceptAllOption: true,
-        types: [{ description: 'Arquivos ZIP', accept: { 'application/zip': ['.zip'] } }],
+        types: [{ description: "Arquivos ZIP", accept: { "application/zip": [".zip"] } }],
       });
       if (!handles?.length) return;
 
       const limited = handles.slice(0, 10);
-      if (handles.length > 10) alert('Só os 10 primeiros ZIPs serão abertos.');
+      if (handles.length > 10) alert("Só os 10 primeiros ZIPs serão abertos.");
 
       let totalHtmls = 0;
 
@@ -100,9 +144,9 @@ if (openZipBtn) {
         });
 
         for (const entry of htmlEntries) {
-          const text = await entry.async('text');
+          const text = await entry.async("text");
           const doc = parseToDoc(text);
-          const nameInZip = entry.name.split('/').pop() || 'arquivo.html';
+          const nameInZip = entry.name.split("/").pop() || "arquivo.html";
 
           state.files.push({
             name: nameInZip,
@@ -114,11 +158,15 @@ if (openZipBtn) {
             zipBundleId: bundleId,
             zipPath: entry.name,
           });
+
           totalHtmls++;
         }
       }
 
-      if (totalHtmls === 0) return alert('Nenhum arquivo HTML encontrado nos ZIPs.');
+      if (totalHtmls === 0) {
+        alert("Nenhum arquivo HTML encontrado nos ZIPs.");
+        return;
+      }
 
       buildTabs();
       if (state.activeIndex === -1 && state.files.length > 0) setActive(0);
@@ -126,15 +174,15 @@ if (openZipBtn) {
 
       toast(`✅ Carregado(s) ${totalHtmls} HTML(s) de ${limited.length} ZIP(s).`);
     } catch (e) {
-      if (e.name !== 'AbortError') {
+      if (e.name !== "AbortError") {
         console.error(e);
-        alert('Falha ao abrir ZIP(s): ' + e.message);
+        alert("Falha ao abrir ZIP(s): " + e.message);
       }
     }
   });
 }
 
-$('#reloadBtn').addEventListener('click', async () => {
+$("#reloadBtn").addEventListener("click", async () => {
   const f = state.files[state.activeIndex];
   if (!f) return;
   await reloadFromDisk(f);
@@ -170,29 +218,22 @@ async function reloadFromDisk(entry) {
   updateDirty();
 }
 
-function parseToDoc(text) {
-  const parser = new DOMParser();
-  const html = normalizeHTML(text);
-  const doc = parser.parseFromString(html, 'text/html');
-  stripLiteralBackslashN(doc);
-  return doc;
-}
-
+// ---- Tabs ----
 function buildTabs() {
-  tabsEl.innerHTML = '';
+  tabsEl.innerHTML = "";
   state.files.forEach((f, i) => {
-    const el = document.createElement('div');
-    el.className = 'tab' + (i === state.activeIndex ? ' active' : '');
+    const el = document.createElement("div");
+    el.className = "tab" + (i === state.activeIndex ? " active" : "");
     el.innerHTML = `
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
         <polyline points="14 2 14 8 20 8"/>
       </svg>
-      <span>${i + 1}. ${escapeHtml(f.name)}</span>
-      ${f.dirty ? '<span class="dirty-dot"></span>' : ''}
+      <span>${i + 1}. ${f.name}</span>
+      ${f.dirty ? '<span class="dirty-dot"></span>' : ""}
     `;
     el.title = f.name;
-    el.addEventListener('click', () => setActive(i));
+    el.addEventListener("click", () => setActive(i));
     tabsEl.appendChild(el);
   });
 }
@@ -202,29 +243,25 @@ async function setActive(i) {
   buildTabs();
   const f = state.files[i];
   if (!f) return;
-  fileInfo.textContent = f.name + ' • ' + (f.dirty ? 'alterado' : 'sem alterações');
+  fileInfo.textContent = f.name + " • " + (f.dirty ? "alterado" : "sem alterações");
   await rescanAllOrActive();
 }
 
 function updateDirty() {
   const anyDirty = state.files.some((f) => f.dirty);
-  dirtyText.textContent = anyDirty ? 'Há alterações não salvas.' : 'Nenhuma alteração.';
-  dirtyText.className = 'status-badge' + (anyDirty ? ' dirty' : '');
+  dirtyText.textContent = anyDirty ? "Há alterações não salvas." : "Nenhuma alteração.";
+  dirtyText.className = "status-badge" + (anyDirty ? " dirty" : "");
   buildTabs();
   const f = state.files[state.activeIndex];
-  if (f) fileInfo.textContent = f.name + ' • ' + (f.dirty ? 'alterado' : 'sem alterações');
-}
-
-function escapeHtml(s) {
-  return (s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  if (f) fileInfo.textContent = f.name + " • " + (f.dirty ? "alterado" : "sem alterações");
 }
 
 // ---- Visibility ----
 function isHiddenByInline(el) {
   if (!el || el.nodeType !== 1) return false;
-  const style = (el.getAttribute('style') || '').toLowerCase();
-  if (style.includes('display:none') || style.includes('visibility:hidden')) return true;
-  if (el.hasAttribute('hidden')) return true;
+  const style = (el.getAttribute("style") || "").toLowerCase();
+  if (style.includes("display:none") || style.includes("visibility:hidden")) return true;
+  if (el.hasAttribute("hidden")) return true;
   return false;
 }
 
@@ -238,20 +275,29 @@ function isEffectivelyVisible(el) {
 }
 
 // ---- Scanner ----
+async function rescanActive() {
+  const file = state.files[state.activeIndex];
+  if (!file) return;
+  file.nodes = scanDoc(file.doc);
+  renderList();
+}
+
 function scanDoc(doc) {
   const nodes = [];
   const walker = doc.createTreeWalker(doc.body || doc, NodeFilter.SHOW_TEXT, {
     acceptNode(node) {
       if (!node) return NodeFilter.FILTER_REJECT;
-      const raw = node.nodeValue || '';
-      const txt = raw.replace(/\s+/g, ' ').trim();
+      const raw = node.nodeValue || "";
+      const txt = raw.replace(/\s+/g, " ").trim();
       if (!txt) return NodeFilter.FILTER_REJECT;
 
       const parent = node.parentElement;
       if (!parent) return NodeFilter.FILTER_REJECT;
 
       const tag = parent.tagName?.toLowerCase();
-      if (['script', 'style', 'noscript', 'template', 'head'].includes(tag)) return NodeFilter.FILTER_REJECT;
+      if (["script", "style", "noscript", "template", "head"].includes(tag))
+        return NodeFilter.FILTER_REJECT;
+
       if (!isEffectivelyVisible(parent)) return NodeFilter.FILTER_REJECT;
       if (state.hideShort && txt.length < 3) return NodeFilter.FILTER_REJECT;
 
@@ -263,10 +309,10 @@ function scanDoc(doc) {
   while (walker.nextNode()) {
     const node = walker.currentNode;
     const parent = node.parentElement;
-    const snippet = (node.nodeValue || '').replace(/\s+/g, ' ').trim();
+    const snippet = (node.nodeValue || "").replace(/\s+/g, " ").trim();
     nodes.push({
       id: id++,
-      type: 'text',
+      type: "text",
       parentSelector: cssPath(parent),
       snippet,
       node,
@@ -276,20 +322,19 @@ function scanDoc(doc) {
   }
 
   if (state.includeAttrs) {
-    const candidates = Array.from(doc.querySelectorAll('[title], [alt], [aria-label]'));
+    const candidates = Array.from(doc.querySelectorAll("[title], [alt], [aria-label]"));
     for (const el of candidates) {
-      const attrs = ['title', 'alt', 'aria-label'];
+      const attrs = ["title", "alt", "aria-label"];
       for (const key of attrs) {
         const v = el.getAttribute(key);
         if (!v) continue;
-        const val = v.replace(/\s+/g, ' ').trim();
+        const val = v.replace(/\s+/g, " ").trim();
         if (!val) continue;
         if (!isEffectivelyVisible(el)) continue;
         if (state.hideShort && val.length < 3) continue;
-
         nodes.push({
           id: ++id,
-          type: 'attr',
+          type: "attr",
           key,
           parentSelector: cssPath(el),
           snippet: val,
@@ -305,18 +350,21 @@ function scanDoc(doc) {
 }
 
 async function rescanAllOrActive() {
-  // sempre no modo "todos juntos" (sem aquele bloco que você não quer)
-  for (const f of state.files) f.nodes = scanDoc(f.doc);
-  renderListAll();
+  if (state.allMode) {
+    for (const f of state.files) f.nodes = scanDoc(f.doc);
+    renderListAll();
+  } else {
+    await rescanActive();
+  }
 }
 
 function cssPath(el) {
-  if (!el || el.nodeType !== 1) return '';
+  if (!el || el.nodeType !== 1) return "";
   const parts = [];
   while (el && el.nodeType === 1 && parts.length < 6) {
     let selector = el.nodeName.toLowerCase();
     if (el.id) {
-      selector += '#' + el.id;
+      selector += "#" + el.id;
       parts.unshift(selector);
       break;
     } else {
@@ -330,13 +378,13 @@ function cssPath(el) {
     parts.unshift(selector);
     el = el.parentElement;
   }
-  return parts.join(' > ');
+  return parts.join(" > ");
 }
 
 // ---- Render: All Mode ----
 function renderListAll() {
-  const term = state.searchTerm?.toLowerCase() || '';
-  listEl.innerHTML = '';
+  const term = state.searchTerm?.toLowerCase() || "";
+  listEl.innerHTML = "";
 
   if (state.files.length === 0) {
     listEl.innerHTML = `
@@ -352,77 +400,80 @@ function renderListAll() {
         <h2>Nenhum arquivo aberto</h2>
         <p>Abra arquivos HTML ou um arquivo ZIP para começar a editar textos de forma rápida e eficiente.</p>
         <div class="actions">
-          <button class="btn btn-primary" type="button" onclick="document.getElementById('openBtn').click()">
+          <button class="btn btn-primary" onclick="document.getElementById('openBtn').click()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
             Abrir HTML(s)
           </button>
-          <button class="btn" type="button" onclick="document.getElementById('openZipBtn').click()">
+          <button class="btn" onclick="document.getElementById('openZipBtn').click()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 8v13H3V8"/>
+              <path d="M23 3H1v5h22V3z"/>
+            </svg>
             Abrir arquivo ZIP
           </button>
         </div>
       </div>
     `;
-    fileInfo.textContent = '';
     return;
   }
 
   state.files.forEach((file, idx) => {
     const rows = file.nodes.filter((n) => !term || n.snippet.toLowerCase().includes(term));
-    const group = document.createElement('div');
-    group.className = 'group' + (idx === state.activeIndex ? ' active' : '');
+    const group = document.createElement("div");
+    group.className = "group" + (idx === state.activeIndex ? " active" : "");
 
-    const head = document.createElement('div');
-    head.className = 'groupHead';
+    const head = document.createElement("div");
+    head.className = "groupHead";
     head.innerHTML = `
       <div class="name">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
           <polyline points="14 2 14 8 20 8"/>
         </svg>
-        <span>${idx + 1}. ${escapeHtml(file.name)}</span>
-        ${file.dirty ? '<span class="dirty-dot" style="width:8px;height:8px;background:var(--warning);border-radius:50%;"></span>' : ''}
+        <span>${idx + 1}. ${file.name}</span>
+        ${file.dirty ? '<span class="dirty-dot" style="width:8px;height:8px;border-radius:50%;"></span>' : ""}
       </div>
       <div class="chips">
         <span class="chip">${rows.length} textos</span>
-        ${file.dirty ? '<span class="chip warning">editado</span>' : ''}
+        ${file.dirty ? '<span class="chip warning">editado</span>' : ""}
       </div>
     `;
 
-    head.addEventListener('click', (e) => {
-      if (e.target.closest('.chips')) {
-        setActive(idx);
-      } else {
-        group.classList.toggle('collapsed');
-      }
+    head.addEventListener("click", (e) => {
+      if (e.target.closest(".chips")) setActive(idx);
+      else group.classList.toggle("collapsed");
     });
-
     group.appendChild(head);
 
-    const body = document.createElement('div');
-    body.className = 'groupBody';
+    const body = document.createElement("div");
+    body.className = "groupBody";
 
     rows.forEach((entry) => {
-      const card = document.createElement('div');
-      card.className = 'card';
+      const card = document.createElement("div");
+      card.className = "card";
 
-      const cardHeader = document.createElement('div');
-      cardHeader.className = 'cardHeader';
+      const cardHeader = document.createElement("div");
+      cardHeader.className = "cardHeader";
       cardHeader.innerHTML = `
         <span class="badge badge-id">#${entry.id}</span>
-        <span class="badge ${entry.type === 'text' ? 'badge-text' : 'badge-attr'}">
-          ${entry.type === 'text' ? 'texto' : `attr:${entry.key}`}
-        </span>
+        <span class="badge ${entry.type === "text" ? "badge-text" : "badge-attr"}">${entry.type === "text" ? "texto" : `attr:${entry.key}`
+        }</span>
       `;
       card.appendChild(cardHeader);
 
-      const ta = document.createElement('textarea');
+      const ta = document.createElement("textarea");
       ta.value = entry.snippet;
-      ta.placeholder = 'Edite aqui…';
-      ta.addEventListener('input', () => onEditFromAll(file, entry, ta.value));
+      ta.placeholder = "Edite aqui…";
+      ta.addEventListener("input", () => onEditFromAll(file, entry, ta.value));
       card.appendChild(ta);
 
-      const meta = document.createElement('div');
-      meta.className = 'meta';
-      meta.textContent = entry.parentSelector || '(sem seletor)';
+      const meta = document.createElement("div");
+      meta.className = "meta";
+      meta.textContent = entry.parentSelector || "(sem seletor)";
       card.appendChild(meta);
 
       body.appendChild(card);
@@ -431,17 +482,91 @@ function renderListAll() {
     group.appendChild(body);
     listEl.appendChild(group);
   });
+}
 
-  // file info
-  const f = state.files[state.activeIndex] || state.files[0];
-  if (state.activeIndex === -1 && state.files.length) state.activeIndex = 0;
-  if (f) fileInfo.textContent = f.name + ' • ' + (f.dirty ? 'alterado' : 'sem alterações');
+// ---- Render: Single Mode ----
+function renderList() {
+  const file = state.files[state.activeIndex];
+  if (!file) {
+    listEl.innerHTML = "";
+    return;
+  }
+
+  const term = state.searchTerm?.toLowerCase() || "";
+  const rows = file.nodes.filter((n) => !term || n.snippet.toLowerCase().includes(term));
+  listEl.innerHTML = "";
+
+  const group = document.createElement("div");
+  group.className = "group active";
+
+  const head = document.createElement("div");
+  head.className = "groupHead";
+  head.innerHTML = `
+    <div class="name">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
+        <polyline points="14 2 14 8 20 8"/>
+      </svg>
+      <span>${file.name}</span>
+      ${file.dirty ? '<span class="dirty-dot" style="width:8px;height:8px;border-radius:50%;"></span>' : ""}
+    </div>
+    <div class="chips">
+      <span class="chip">${rows.length} textos</span>
+    </div>
+  `;
+  group.appendChild(head);
+
+  const body = document.createElement("div");
+  body.className = "groupBody";
+
+  rows.forEach((entry) => {
+    const card = document.createElement("div");
+    card.className = "card";
+
+    const cardHeader = document.createElement("div");
+    cardHeader.className = "cardHeader";
+    cardHeader.innerHTML = `
+      <span class="badge badge-id">#${entry.id}</span>
+      <span class="badge ${entry.type === "text" ? "badge-text" : "badge-attr"}">${entry.type === "text" ? "texto" : `attr:${entry.key}`
+      }</span>
+    `;
+    card.appendChild(cardHeader);
+
+    const ta = document.createElement("textarea");
+    ta.value = entry.snippet;
+    ta.placeholder = "Edite aqui…";
+    ta.addEventListener("input", () => onEdit(entry, ta.value));
+    card.appendChild(ta);
+
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.textContent = entry.parentSelector || "(sem seletor)";
+    card.appendChild(meta);
+
+    body.appendChild(card);
+  });
+
+  group.appendChild(body);
+  listEl.appendChild(group);
 }
 
 // ---- Editing ----
+function onEdit(entry, newVal) {
+  const file = state.files[state.activeIndex];
+  if (!file) return;
+
+  if (entry.type === "text") entry.node.nodeValue = newVal;
+  else if (entry.type === "attr") entry.node.setAttribute(entry.key, newVal);
+
+  entry.snippet = newVal;
+  entry.length = newVal.length;
+  file.dirty = true;
+  updateDirty();
+}
+
 function onEditFromAll(file, entry, newVal) {
-  if (entry.type === 'text') entry.node.nodeValue = newVal;
-  else if (entry.type === 'attr') entry.node.setAttribute(entry.key, newVal);
+  if (entry.type === "text") entry.node.nodeValue = newVal;
+  else if (entry.type === "attr") entry.node.setAttribute(entry.key, newVal);
 
   entry.snippet = newVal;
   entry.length = newVal.length;
@@ -450,21 +575,24 @@ function onEditFromAll(file, entry, newVal) {
 }
 
 // ---- Replace All ----
-$('#replaceAllBtn').addEventListener('click', () => {
+$("#replaceAllBtn").addEventListener("click", () => {
   const file = state.files[state.activeIndex];
   if (!file) return;
 
-  const find = $('#findInput').value;
-  const repl = $('#replaceInput').value;
-  if (!find) return alert('Informe um termo para buscar.');
+  const find = $("#findInput").value;
+  const repl = $("#replaceInput").value;
+  if (!find) {
+    alert("Informe um termo para buscar.");
+    return;
+  }
 
   let count = 0;
   file.nodes.forEach((entry) => {
     if (entry.snippet.includes(find)) {
       const newVal = entry.snippet.split(find).join(repl);
       if (newVal !== entry.snippet) {
-        if (entry.type === 'text') entry.node.nodeValue = newVal;
-        else if (entry.type === 'attr') entry.node.setAttribute(entry.key, newVal);
+        if (entry.type === "text") entry.node.nodeValue = newVal;
+        else if (entry.type === "attr") entry.node.setAttribute(entry.key, newVal);
         entry.snippet = newVal;
         entry.length = newVal.length;
         count++;
@@ -475,20 +603,12 @@ $('#replaceAllBtn').addEventListener('click', () => {
   if (count > 0) {
     file.dirty = true;
     updateDirty();
-    renderListAll();
+    state.allMode ? renderListAll() : renderList();
   }
-
   toast(`${count} substituições aplicadas`);
 });
 
 // ---- Save ----
-function serializeWithDoctype(doc) {
-  const dt = doc.doctype
-    ? `<!DOCTYPE ${doc.doctype.name}${doc.doctype.publicId ? ` PUBLIC "${doc.doctype.publicId}"` : ''}${doc.doctype.systemId ? ` "${doc.doctype.systemId}"` : ''}>`
-    : '';
-  return dt + doc.documentElement.outerHTML;
-}
-
 async function saveFile(file) {
   stripLiteralBackslashN(file.doc);
   const html = serializeWithDoctype(file.doc);
@@ -500,10 +620,10 @@ async function saveFile(file) {
       await writable.close();
       file.dirty = false;
       updateDirty();
-      toast('✅ Salvo: ' + file.name);
+      toast("✅ Salvo: " + file.name);
       return true;
     } catch (e) {
-      alert('Falha ao salvar: ' + e.message);
+      alert("Falha ao salvar: " + e.message);
       return false;
     }
   } else {
@@ -512,17 +632,22 @@ async function saveFile(file) {
   }
 }
 
-$('#saveBtn').addEventListener('click', async () => {
+$("#saveBtn").addEventListener("click", async () => {
   const f = state.files[state.activeIndex];
-  if (!f) return toast('Selecione um arquivo primeiro');
+  if (!f) {
+    toast("Selecione um arquivo primeiro");
+    return;
+  }
   await saveFile(f);
 });
 
-$('#saveAllBtn').addEventListener('click', async () => {
-  for (const f of state.files) if (f.dirty) await saveFile(f);
+$("#saveAllBtn").addEventListener("click", async () => {
+  for (const f of state.files) {
+    if (f.dirty) await saveFile(f);
+  }
 });
 
-$('#downloadBtn').addEventListener('click', () => {
+$("#downloadBtn").addEventListener("click", () => {
   const f = state.files[state.activeIndex];
   if (!f) return;
   stripLiteralBackslashN(f.doc);
@@ -531,9 +656,15 @@ $('#downloadBtn').addEventListener('click', () => {
 });
 
 // ---- Export ZIP ----
-document.getElementById('exportZipBtn').addEventListener('click', async () => {
-  if (!window.JSZip) return alert('JSZip não carregou.');
-  if (!state.files.length) return alert('Nenhum arquivo aberto.');
+document.getElementById("exportZipBtn").addEventListener("click", async () => {
+  if (!window.JSZip) {
+    alert("JSZip não carregou.");
+    return;
+  }
+  if (!state.files.length) {
+    alert("Nenhum arquivo aberto.");
+    return;
+  }
 
   const fromBundles = state.files.filter((f) => f.zipBundleId);
   const standalone = state.files.filter((f) => !f.zipBundleId);
@@ -549,39 +680,34 @@ document.getElementById('exportZipBtn').addEventListener('click', async () => {
     for (const f of filesInBundle) {
       stripLiteralBackslashN(f.doc);
       const html = serializeWithDoctype(f.doc);
-      const pathInZip = f.zipPath || f.name || 'index.html';
+      const pathInZip = f.zipPath || f.name || "index.html";
       zip.file(pathInZip, html);
     }
 
-    try {
-      const blob = await zip.generateAsync({ type: 'blob' });
+    const blob = await zip.generateAsync({ type: "blob" });
 
-      let zipName = name || 'edited.zip';
-      if (!zipName.toLowerCase().endsWith('.zip')) zipName += '.zip';
-      const dot = zipName.lastIndexOf('.');
-      if (dot > 0) zipName = zipName.slice(0, dot) + '-edited' + zipName.slice(dot);
+    let zipName = name || "edited.zip";
+    if (!zipName.toLowerCase().endsWith(".zip")) zipName += ".zip";
+    const dot = zipName.lastIndexOf(".");
+    if (dot > 0) zipName = zipName.slice(0, dot) + "-edited" + zipName.slice(dot);
 
-      if (window.showSaveFilePicker) {
-        try {
-          const handle = await window.showSaveFilePicker({
-            suggestedName: zipName,
-            types: [{ description: 'Arquivo ZIP', accept: { 'application/zip': ['.zip'] } }],
-          });
-          const writable = await handle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          toast('✅ ZIP salvo: ' + (handle.name || zipName));
-        } catch (err) {
-          downloadBlobAs(blob, zipName);
-          toast('⬇️ ZIP exportado: ' + zipName);
-        }
-      } else {
+    if (window.showSaveFilePicker) {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: zipName,
+          types: [{ description: "Arquivo ZIP", accept: { "application/zip": [".zip"] } }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        toast("✅ ZIP salvo: " + (handle.name || zipName));
+      } catch {
         downloadBlobAs(blob, zipName);
-        toast('⬇️ ZIP exportado: ' + zipName);
+        toast("⬇️ ZIP exportado: " + zipName);
       }
-    } catch (e) {
-      console.error(e);
-      alert('Falha ao gerar ZIP: ' + e.message);
+    } else {
+      downloadBlobAs(blob, zipName);
+      toast("⬇️ ZIP exportado: " + zipName);
     }
   }
 
@@ -590,47 +716,43 @@ document.getElementById('exportZipBtn').addEventListener('click', async () => {
     for (const f of standalone) {
       stripLiteralBackslashN(f.doc);
       const html = serializeWithDoctype(f.doc);
-      const fname = (f.name || 'file.html').replace(/[\/\\]/g, '_');
+      const fname = (f.name || "file.html").replace(/[\/\\]/g, "_");
       zip.file(fname, html);
     }
 
-    try {
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const zipName = 'edited-htmls.zip';
+    const blob = await zip.generateAsync({ type: "blob" });
+    const zipName = "edited-htmls.zip";
 
-      if (window.showSaveFilePicker) {
-        try {
-          const handle = await window.showSaveFilePicker({
-            suggestedName: zipName,
-            types: [{ description: 'Arquivo ZIP', accept: { 'application/zip': ['.zip'] } }],
-          });
-          const writable = await handle.createWritable();
-          await writable.write(blob);
-          await writable.close();
-          toast('✅ ZIP salvo: ' + (handle.name || zipName));
-        } catch (err) {
-          downloadBlobAs(blob, zipName);
-          toast('⬇️ ZIP exportado: ' + zipName);
-        }
-      } else {
+    if (window.showSaveFilePicker) {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: zipName,
+          types: [{ description: "Arquivo ZIP", accept: { "application/zip": [".zip"] } }],
+        });
+        const writable = await handle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+        toast("✅ ZIP salvo: " + (handle.name || zipName));
+      } catch {
         downloadBlobAs(blob, zipName);
-        toast('⬇️ ZIP exportado: ' + zipName);
+        toast("⬇️ ZIP exportado: " + zipName);
       }
-    } catch (e) {
-      console.error(e);
-      alert('Falha ao gerar ZIP: ' + e.message);
+    } else {
+      downloadBlobAs(blob, zipName);
+      toast("⬇️ ZIP exportado: " + zipName);
     }
   }
 });
 
+// ---- Downloads ----
 function downloadAs(content, filename) {
-  const blob = new Blob([content], { type: 'text/html;charset=utf-8' });
-  downloadBlobAs(blob, filename || 'edited.html');
+  const blob = new Blob([content], { type: "text/html;charset=utf-8" });
+  downloadBlobAs(blob, filename || "edited.html");
 }
 
 function downloadBlobAs(blob, filename) {
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
+  const a = document.createElement("a");
   a.href = url;
   a.download = filename;
   document.body.appendChild(a);
@@ -639,111 +761,105 @@ function downloadBlobAs(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-function toast(msg) {
-  const existing = document.querySelector('.toast');
-  if (existing) existing.remove();
-  const t = document.createElement('div');
-  t.className = 'toast';
-  t.textContent = msg;
-  document.body.appendChild(t);
-  setTimeout(() => t.remove(), 2200);
-}
-
 // ---- Filters ----
-$('#search').addEventListener('input', (e) => {
+$("#search").addEventListener("input", (e) => {
   state.searchTerm = e.target.value;
-  renderListAll();
+  state.allMode ? renderListAll() : renderList();
 });
-$('#shortToggle').addEventListener('change', (e) => {
+$("#shortToggle").addEventListener("change", (e) => {
   state.hideShort = e.target.checked;
   rescanAllOrActive();
 });
-$('#attrsToggle').addEventListener('change', (e) => {
+$("#attrsToggle").addEventListener("change", (e) => {
   state.includeAttrs = e.target.checked;
   rescanAllOrActive();
 });
-$('#rescanBtn').addEventListener('click', rescanAllOrActive);
-
-// ---- Tradução via API ----
-translateActiveBtn.addEventListener('click', async () => {
-  const file = state.files[state.activeIndex];
-  if (!file) return toast('Abra um arquivo primeiro.');
-  await translateFile(file, langSelect.value);
+$("#rescanBtn").addEventListener("click", rescanAllOrActive);
+$("#allModeToggle")?.addEventListener("change", (e) => {
+  state.allMode = e.target.checked;
+  rescanAllOrActive();
 });
 
-translateAllBtn.addEventListener('click', async () => {
-  if (!state.files.length) return toast('Abra arquivo(s) primeiro.');
-  const lang = langSelect.value;
-
-  // traduz 1 por 1 (mais seguro)
-  for (const f of state.files) {
-    await translateFile(f, lang);
-  }
-});
-
-async function translateFile(file, lang) {
-  const nodes = file.nodes || [];
-  if (!nodes.length) {
-    file.nodes = scanDoc(file.doc);
-  }
-
-  // pega todos snippets em ordem
-  const entries = file.nodes;
-
-  // evita chamadas gigantes: chunk de 40 itens
-  const chunkSize = 40;
-
-  toast(`🌍 Traduzindo: ${file.name}...`);
-
-  for (let i = 0; i < entries.length; i += chunkSize) {
-    const chunk = entries.slice(i, i + chunkSize);
-    const texts = chunk.map((e) => e.snippet);
-
-    const translated = await callTranslateAPI(texts, lang);
-
-    if (!Array.isArray(translated) || translated.length !== chunk.length) {
-      throw new Error('Resposta da tradução inválida.');
-    }
-
-    // aplica traduções no DOM
-    for (let k = 0; k < chunk.length; k++) {
-      const entry = chunk[k];
-      const newVal = translated[k];
-
-      if (entry.type === 'text') entry.node.nodeValue = newVal;
-      else if (entry.type === 'attr') entry.node.setAttribute(entry.key, newVal);
-
-      entry.snippet = newVal;
-      entry.length = newVal.length;
-    }
-  }
-
-  file.dirty = true;
-  updateDirty();
-  await rescanAllOrActive();
-
-  toast(`✅ Tradução aplicada: ${file.name}`);
-}
-
-async function callTranslateAPI(texts, targetLang) {
-  const res = await fetch('/api/translate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ targetLang, texts }),
+// =======================
+// TRANSLATION (NOVO)
+// =======================
+async function callTranslateAPI(html, targetLang) {
+  const resp = await fetch("/api/translate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ html, targetLang }),
   });
 
-  if (!res.ok) {
-    const msg = await safeReadText(res);
-    throw new Error(`Erro na API (${res.status}): ${msg || 'sem detalhes'}`);
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    const msg = data?.error || `Erro HTTP ${resp.status}`;
+    throw new Error(msg);
+  }
+  if (!data?.html) throw new Error("Resposta da API sem html.");
+  return data.html;
+}
+
+async function translateFile(file, targetLang) {
+  stripLiteralBackslashN(file.doc);
+  const original = serializeWithDoctype(file.doc);
+
+  const translated = await callTranslateAPI(original, targetLang);
+
+  // Atualiza o doc do arquivo com o HTML traduzido
+  file.doc = parseToDoc(translated);
+  file.dirty = true;
+}
+
+async function translateActive() {
+  const file = state.files[state.activeIndex];
+  if (!file) {
+    toast("Abra/seleciona um arquivo primeiro.");
+    return;
   }
 
-  const data = await res.json();
-  return data.translations;
+  const targetLang = langSelect?.value || "en";
+  try {
+    setTranslateBusy(true);
+    toast("🌍 Traduzindo arquivo atual...");
+    await translateFile(file, targetLang);
+    updateDirty();
+    await rescanAllOrActive();
+    toast("✅ Tradução aplicada!");
+  } catch (e) {
+    console.error(e);
+    alert("Falha ao traduzir: " + e.message);
+  } finally {
+    setTranslateBusy(false);
+  }
 }
 
-async function safeReadText(res) {
-  try { return await res.text(); } catch { return ''; }
+async function translateAll() {
+  if (!state.files.length) {
+    toast("Abra algum arquivo primeiro.");
+    return;
+  }
+
+  const targetLang = langSelect?.value || "en";
+  try {
+    setTranslateBusy(true);
+    toast("🌍 Traduzindo todos os arquivos...");
+    for (const f of state.files) {
+      await translateFile(f, targetLang);
+    }
+    updateDirty();
+    await rescanAllOrActive();
+    toast("✅ Tradução aplicada em todos!");
+  } catch (e) {
+    console.error(e);
+    alert("Falha ao traduzir: " + e.message);
+  } finally {
+    setTranslateBusy(false);
+  }
 }
+
+// Listeners dos botões
+translateCurrentBtn?.addEventListener("click", translateActive);
+translateAllBtn?.addEventListener("click", translateAll);
 
 // Initial render
 renderListAll();
