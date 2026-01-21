@@ -1,5 +1,4 @@
-// Fast HTML Editor v8.0 – Visual redesign with modern UI
-// (View Controls removidos: Ver todos juntos / densidade / fonte / expandir / recolher)
+// Fast HTML Editor – v9 (UI simplificada + Tradução via API no Vercel)
 
 const state = {
   files: [],
@@ -8,7 +7,7 @@ const state = {
   hideShort: true,
   searchTerm: '',
   openCounter: 0,
-  allMode: true, // fica sempre "ver todos juntos"
+  allMode: true, // fica sempre "ver todos juntos" (sem a barra que você não quer)
 };
 
 const zipBundles = [];
@@ -16,10 +15,15 @@ let zipBundleCounter = 0;
 
 // ---- Helpers ----
 const $ = (s) => document.querySelector(s);
+
 const tabsEl = $('#tabs');
 const listEl = $('#textList');
 const dirtyText = $('#dirtyText');
 const fileInfo = $('#fileInfo');
+
+const langSelect = $('#langSelect');
+const translateActiveBtn = $('#translateActiveBtn');
+const translateAllBtn = $('#translateAllBtn');
 
 const hasFS = 'showOpenFilePicker' in window && 'showSaveFilePicker' in window;
 
@@ -33,13 +37,17 @@ function normalizeHTML(src) {
 
 function stripLiteralBackslashN(doc) {
   if (!doc || !doc.body) return;
-  while (doc.body.firstChild && doc.body.firstChild.nodeType === 3 && /^(\s*\\n)+\s*$/.test(doc.body.firstChild.nodeValue)) {
+  while (
+    doc.body.firstChild &&
+    doc.body.firstChild.nodeType === 3 &&
+    /^(\s*\\n)+\s*$/.test(doc.body.firstChild.nodeValue)
+  ) {
     doc.body.removeChild(doc.body.firstChild);
   }
   const w = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT);
   const nodes = [];
   while (w.nextNode()) nodes.push(w.currentNode);
-  nodes.forEach(t => t.nodeValue = t.nodeValue.replace(/\\n+/g, ''));
+  nodes.forEach((t) => (t.nodeValue = t.nodeValue.replace(/\\n+/g, '')));
 }
 
 // ---- Open Files ----
@@ -48,10 +56,10 @@ $('#openBtn').addEventListener('click', async () => {
     const handles = await window.showOpenFilePicker({
       multiple: true,
       excludeAcceptAllOption: true,
-      types: [{ description: 'Arquivos HTML', accept: { 'text/html': ['.html', '.htm'] } }]
+      types: [{ description: 'Arquivos HTML', accept: { 'text/html': ['.html', '.htm'] } }],
     });
     if (!handles?.length) return;
-    for (const handle of handles.slice(0, 5)) await openOne(handle);
+    for (const handle of handles.slice(0, 10)) await openOne(handle);
     if (state.activeIndex === -1 && state.files.length > 0) setActive(0);
   } catch (e) {
     if (e.name !== 'AbortError') alert('Não foi possível abrir: ' + e.message);
@@ -63,19 +71,13 @@ const openZipBtn = $('#openZipBtn');
 if (openZipBtn) {
   openZipBtn.addEventListener('click', async () => {
     try {
-      if (!window.JSZip) {
-        alert('JSZip não carregado.');
-        return;
-      }
-      if (!window.showOpenFilePicker) {
-        alert('Navegador não suporta showOpenFilePicker.');
-        return;
-      }
+      if (!window.JSZip) return alert('JSZip não carregado.');
+      if (!window.showOpenFilePicker) return alert('Navegador não suporta showOpenFilePicker.');
 
       const handles = await window.showOpenFilePicker({
         multiple: true,
         excludeAcceptAllOption: true,
-        types: [{ description: 'Arquivos ZIP', accept: { 'application/zip': ['.zip'] } }]
+        types: [{ description: 'Arquivos ZIP', accept: { 'application/zip': ['.zip'] } }],
       });
       if (!handles?.length) return;
 
@@ -102,7 +104,7 @@ if (openZipBtn) {
           const doc = parseToDoc(text);
           const nameInZip = entry.name.split('/').pop() || 'arquivo.html';
 
-          const fileEntry = {
+          state.files.push({
             name: nameInZip,
             handle: null,
             doc,
@@ -110,25 +112,17 @@ if (openZipBtn) {
             dirty: false,
             openedOrder: ++state.openCounter,
             zipBundleId: bundleId,
-            zipPath: entry.name
-          };
-
-          state.files.push(fileEntry);
+            zipPath: entry.name,
+          });
           totalHtmls++;
         }
       }
 
-      if (totalHtmls === 0) {
-        alert('Nenhum arquivo HTML encontrado nos ZIPs.');
-        return;
-      }
+      if (totalHtmls === 0) return alert('Nenhum arquivo HTML encontrado nos ZIPs.');
 
       buildTabs();
-      if (state.activeIndex === -1 && state.files.length > 0) {
-        setActive(0);
-      } else {
-        await rescanAllOrActive();
-      }
+      if (state.activeIndex === -1 && state.files.length > 0) setActive(0);
+      else await rescanAllOrActive();
 
       toast(`✅ Carregado(s) ${totalHtmls} HTML(s) de ${limited.length} ZIP(s).`);
     } catch (e) {
@@ -151,7 +145,8 @@ async function openOne(handle) {
   const file = await handle.getFile();
   const text = await file.text();
   const doc = parseToDoc(text);
-  const entry = {
+
+  state.files.push({
     name: handle.name || file.name,
     handle,
     doc,
@@ -159,9 +154,9 @@ async function openOne(handle) {
     dirty: false,
     openedOrder: ++state.openCounter,
     zipBundleId: null,
-    zipPath: null
-  };
-  state.files.push(entry);
+    zipPath: null,
+  });
+
   buildTabs();
   await rescanAllOrActive();
 }
@@ -193,7 +188,7 @@ function buildTabs() {
         <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
         <polyline points="14 2 14 8 20 8"/>
       </svg>
-      <span>${i + 1}. ${f.name}</span>
+      <span>${i + 1}. ${escapeHtml(f.name)}</span>
       ${f.dirty ? '<span class="dirty-dot"></span>' : ''}
     `;
     el.title = f.name;
@@ -212,12 +207,16 @@ async function setActive(i) {
 }
 
 function updateDirty() {
-  const anyDirty = state.files.some(f => f.dirty);
+  const anyDirty = state.files.some((f) => f.dirty);
   dirtyText.textContent = anyDirty ? 'Há alterações não salvas.' : 'Nenhuma alteração.';
   dirtyText.className = 'status-badge' + (anyDirty ? ' dirty' : '');
   buildTabs();
   const f = state.files[state.activeIndex];
   if (f) fileInfo.textContent = f.name + ' • ' + (f.dirty ? 'alterado' : 'sem alterações');
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
 // ---- Visibility ----
@@ -239,13 +238,6 @@ function isEffectivelyVisible(el) {
 }
 
 // ---- Scanner ----
-async function rescanActive() {
-  const file = state.files[state.activeIndex];
-  if (!file) return;
-  file.nodes = scanDoc(file.doc);
-  renderList();
-}
-
 function scanDoc(doc) {
   const nodes = [];
   const walker = doc.createTreeWalker(doc.body || doc, NodeFilter.SHOW_TEXT, {
@@ -254,14 +246,17 @@ function scanDoc(doc) {
       const raw = node.nodeValue || '';
       const txt = raw.replace(/\s+/g, ' ').trim();
       if (!txt) return NodeFilter.FILTER_REJECT;
+
       const parent = node.parentElement;
       if (!parent) return NodeFilter.FILTER_REJECT;
+
       const tag = parent.tagName?.toLowerCase();
       if (['script', 'style', 'noscript', 'template', 'head'].includes(tag)) return NodeFilter.FILTER_REJECT;
       if (!isEffectivelyVisible(parent)) return NodeFilter.FILTER_REJECT;
       if (state.hideShort && txt.length < 3) return NodeFilter.FILTER_REJECT;
+
       return NodeFilter.FILTER_ACCEPT;
-    }
+    },
   });
 
   let id = 1;
@@ -269,7 +264,15 @@ function scanDoc(doc) {
     const node = walker.currentNode;
     const parent = node.parentElement;
     const snippet = (node.nodeValue || '').replace(/\s+/g, ' ').trim();
-    nodes.push({ id: id++, type: 'text', parentSelector: cssPath(parent), snippet, node, parent, length: snippet.length });
+    nodes.push({
+      id: id++,
+      type: 'text',
+      parentSelector: cssPath(parent),
+      snippet,
+      node,
+      parent,
+      length: snippet.length,
+    });
   }
 
   if (state.includeAttrs) {
@@ -283,7 +286,17 @@ function scanDoc(doc) {
         if (!val) continue;
         if (!isEffectivelyVisible(el)) continue;
         if (state.hideShort && val.length < 3) continue;
-        nodes.push({ id: ++id, type: 'attr', key, parentSelector: cssPath(el), snippet: val, node: el, parent: el, length: val.length });
+
+        nodes.push({
+          id: ++id,
+          type: 'attr',
+          key,
+          parentSelector: cssPath(el),
+          snippet: val,
+          node: el,
+          parent: el,
+          length: val.length,
+        });
       }
     }
   }
@@ -292,12 +305,9 @@ function scanDoc(doc) {
 }
 
 async function rescanAllOrActive() {
-  if (state.allMode) {
-    for (const f of state.files) f.nodes = scanDoc(f.doc);
-    renderListAll();
-  } else {
-    await rescanActive();
-  }
+  // sempre no modo "todos juntos" (sem aquele bloco que você não quer)
+  for (const f of state.files) f.nodes = scanDoc(f.doc);
+  renderListAll();
 }
 
 function cssPath(el) {
@@ -305,10 +315,16 @@ function cssPath(el) {
   const parts = [];
   while (el && el.nodeType === 1 && parts.length < 6) {
     let selector = el.nodeName.toLowerCase();
-    if (el.id) { selector += '#' + el.id; parts.unshift(selector); break; }
-    else {
-      let sib = el; let nth = 1;
-      while (sib = sib.previousElementSibling) { if (sib.nodeName === el.nodeName) nth++; }
+    if (el.id) {
+      selector += '#' + el.id;
+      parts.unshift(selector);
+      break;
+    } else {
+      let sib = el;
+      let nth = 1;
+      while ((sib = sib.previousElementSibling)) {
+        if (sib.nodeName === el.nodeName) nth++;
+      }
       selector += `:nth-of-type(${nth})`;
     }
     parts.unshift(selector);
@@ -336,29 +352,21 @@ function renderListAll() {
         <h2>Nenhum arquivo aberto</h2>
         <p>Abra arquivos HTML ou um arquivo ZIP para começar a editar textos de forma rápida e eficiente.</p>
         <div class="actions">
-          <button class="btn btn-primary" onclick="document.getElementById('openBtn').click()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="17 8 12 3 7 8"/>
-              <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
+          <button class="btn btn-primary" type="button" onclick="document.getElementById('openBtn').click()">
             Abrir HTML(s)
           </button>
-          <button class="btn" onclick="document.getElementById('openZipBtn').click()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 8v13H3V8"/>
-              <path d="M23 3H1v5h22V3z"/>
-            </svg>
+          <button class="btn" type="button" onclick="document.getElementById('openZipBtn').click()">
             Abrir arquivo ZIP
           </button>
         </div>
       </div>
     `;
+    fileInfo.textContent = '';
     return;
   }
 
   state.files.forEach((file, idx) => {
-    const rows = file.nodes.filter(n => !term || n.snippet.toLowerCase().includes(term));
+    const rows = file.nodes.filter((n) => !term || n.snippet.toLowerCase().includes(term));
     const group = document.createElement('div');
     group.className = 'group' + (idx === state.activeIndex ? ' active' : '');
 
@@ -370,7 +378,7 @@ function renderListAll() {
           <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
           <polyline points="14 2 14 8 20 8"/>
         </svg>
-        <span>${idx + 1}. ${file.name}</span>
+        <span>${idx + 1}. ${escapeHtml(file.name)}</span>
         ${file.dirty ? '<span class="dirty-dot" style="width:8px;height:8px;background:var(--warning);border-radius:50%;"></span>' : ''}
       </div>
       <div class="chips">
@@ -378,6 +386,7 @@ function renderListAll() {
         ${file.dirty ? '<span class="chip warning">editado</span>' : ''}
       </div>
     `;
+
     head.addEventListener('click', (e) => {
       if (e.target.closest('.chips')) {
         setActive(idx);
@@ -385,12 +394,13 @@ function renderListAll() {
         group.classList.toggle('collapsed');
       }
     });
+
     group.appendChild(head);
 
     const body = document.createElement('div');
     body.className = 'groupBody';
 
-    rows.forEach(entry => {
+    rows.forEach((entry) => {
       const card = document.createElement('div');
       card.className = 'card';
 
@@ -398,7 +408,9 @@ function renderListAll() {
       cardHeader.className = 'cardHeader';
       cardHeader.innerHTML = `
         <span class="badge badge-id">#${entry.id}</span>
-        <span class="badge ${entry.type === 'text' ? 'badge-text' : 'badge-attr'}">${entry.type === 'text' ? 'texto' : `attr:${entry.key}`}</span>
+        <span class="badge ${entry.type === 'text' ? 'badge-text' : 'badge-attr'}">
+          ${entry.type === 'text' ? 'texto' : `attr:${entry.key}`}
+        </span>
       `;
       card.appendChild(cardHeader);
 
@@ -419,81 +431,14 @@ function renderListAll() {
     group.appendChild(body);
     listEl.appendChild(group);
   });
-}
 
-// ---- Render: Single Mode (mantido por compatibilidade, mas não é usado) ----
-function renderList() {
-  const file = state.files[state.activeIndex];
-  if (!file) { listEl.innerHTML = ''; return; }
-  const term = state.searchTerm?.toLowerCase() || '';
-  const rows = file.nodes.filter(n => !term || n.snippet.toLowerCase().includes(term));
-  listEl.innerHTML = '';
-
-  const group = document.createElement('div');
-  group.className = 'group active';
-
-  const head = document.createElement('div');
-  head.className = 'groupHead';
-  head.innerHTML = `
-    <div class="name">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-        <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/>
-        <polyline points="14 2 14 8 20 8"/>
-      </svg>
-      <span>${file.name}</span>
-      ${file.dirty ? '<span class="dirty-dot" style="width:8px;height:8px;background:var(--warning);border-radius:50%;"></span>' : ''}
-    </div>
-    <div class="chips">
-      <span class="chip">${rows.length} textos</span>
-    </div>
-  `;
-  group.appendChild(head);
-
-  const body = document.createElement('div');
-  body.className = 'groupBody';
-
-  rows.forEach(entry => {
-    const card = document.createElement('div');
-    card.className = 'card';
-
-    const cardHeader = document.createElement('div');
-    cardHeader.className = 'cardHeader';
-    cardHeader.innerHTML = `
-      <span class="badge badge-id">#${entry.id}</span>
-      <span class="badge ${entry.type === 'text' ? 'badge-text' : 'badge-attr'}">${entry.type === 'text' ? 'texto' : `attr:${entry.key}`}</span>
-    `;
-    card.appendChild(cardHeader);
-
-    const ta = document.createElement('textarea');
-    ta.value = entry.snippet;
-    ta.placeholder = 'Edite aqui…';
-    ta.addEventListener('input', () => onEdit(entry, ta.value));
-    card.appendChild(ta);
-
-    const meta = document.createElement('div');
-    meta.className = 'meta';
-    meta.textContent = entry.parentSelector || '(sem seletor)';
-    card.appendChild(meta);
-
-    body.appendChild(card);
-  });
-
-  group.appendChild(body);
-  listEl.appendChild(group);
+  // file info
+  const f = state.files[state.activeIndex] || state.files[0];
+  if (state.activeIndex === -1 && state.files.length) state.activeIndex = 0;
+  if (f) fileInfo.textContent = f.name + ' • ' + (f.dirty ? 'alterado' : 'sem alterações');
 }
 
 // ---- Editing ----
-function onEdit(entry, newVal) {
-  const file = state.files[state.activeIndex]; if (!file) return;
-  if (entry.type === 'text') entry.node.nodeValue = newVal;
-  else if (entry.type === 'attr') entry.node.setAttribute(entry.key, newVal);
-
-  entry.snippet = newVal;
-  entry.length = newVal.length;
-  file.dirty = true;
-  updateDirty();
-}
-
 function onEditFromAll(file, entry, newVal) {
   if (entry.type === 'text') entry.node.nodeValue = newVal;
   else if (entry.type === 'attr') entry.node.setAttribute(entry.key, newVal);
@@ -506,13 +451,15 @@ function onEditFromAll(file, entry, newVal) {
 
 // ---- Replace All ----
 $('#replaceAllBtn').addEventListener('click', () => {
-  const file = state.files[state.activeIndex]; if (!file) return;
+  const file = state.files[state.activeIndex];
+  if (!file) return;
+
   const find = $('#findInput').value;
   const repl = $('#replaceInput').value;
-  if (!find) { alert('Informe um termo para buscar.'); return; }
+  if (!find) return alert('Informe um termo para buscar.');
 
   let count = 0;
-  file.nodes.forEach(entry => {
+  file.nodes.forEach((entry) => {
     if (entry.snippet.includes(find)) {
       const newVal = entry.snippet.split(find).join(repl);
       if (newVal !== entry.snippet) {
@@ -528,8 +475,9 @@ $('#replaceAllBtn').addEventListener('click', () => {
   if (count > 0) {
     file.dirty = true;
     updateDirty();
-    state.allMode ? renderListAll() : renderList();
+    renderListAll();
   }
+
   toast(`${count} substituições aplicadas`);
 });
 
@@ -550,7 +498,8 @@ async function saveFile(file) {
       const writable = await file.handle.createWritable();
       await writable.write(html);
       await writable.close();
-      file.dirty = false; updateDirty();
+      file.dirty = false;
+      updateDirty();
       toast('✅ Salvo: ' + file.name);
       return true;
     } catch (e) {
@@ -565,12 +514,12 @@ async function saveFile(file) {
 
 $('#saveBtn').addEventListener('click', async () => {
   const f = state.files[state.activeIndex];
-  if (!f) { toast('Selecione um arquivo primeiro'); return; }
+  if (!f) return toast('Selecione um arquivo primeiro');
   await saveFile(f);
 });
 
 $('#saveAllBtn').addEventListener('click', async () => {
-  for (const f of state.files) { if (f.dirty) await saveFile(f); }
+  for (const f of state.files) if (f.dirty) await saveFile(f);
 });
 
 $('#downloadBtn').addEventListener('click', () => {
@@ -583,20 +532,19 @@ $('#downloadBtn').addEventListener('click', () => {
 
 // ---- Export ZIP ----
 document.getElementById('exportZipBtn').addEventListener('click', async () => {
-  if (!window.JSZip) { alert('JSZip não carregou.'); return; }
-  if (!state.files.length) { alert('Nenhum arquivo aberto.'); return; }
+  if (!window.JSZip) return alert('JSZip não carregou.');
+  if (!state.files.length) return alert('Nenhum arquivo aberto.');
 
-  const fromBundles = state.files.filter(f => f.zipBundleId);
-  const standalone = state.files.filter(f => !f.zipBundleId);
-
-  const bundleIds = [...new Set(fromBundles.map(f => f.zipBundleId))].filter(Boolean);
+  const fromBundles = state.files.filter((f) => f.zipBundleId);
+  const standalone = state.files.filter((f) => !f.zipBundleId);
+  const bundleIds = [...new Set(fromBundles.map((f) => f.zipBundleId))].filter(Boolean);
 
   for (const id of bundleIds) {
-    const bundle = zipBundles.find(z => z.id === id);
+    const bundle = zipBundles.find((z) => z.id === id);
     if (!bundle) continue;
 
     const { zip, name } = bundle;
-    const filesInBundle = fromBundles.filter(f => f.zipBundleId === id);
+    const filesInBundle = fromBundles.filter((f) => f.zipBundleId === id);
 
     for (const f of filesInBundle) {
       stripLiteralBackslashN(f.doc);
@@ -617,7 +565,7 @@ document.getElementById('exportZipBtn').addEventListener('click', async () => {
         try {
           const handle = await window.showSaveFilePicker({
             suggestedName: zipName,
-            types: [{ description: 'Arquivo ZIP', accept: { 'application/zip': ['.zip'] } }]
+            types: [{ description: 'Arquivo ZIP', accept: { 'application/zip': ['.zip'] } }],
           });
           const writable = await handle.createWritable();
           await writable.write(blob);
@@ -654,7 +602,7 @@ document.getElementById('exportZipBtn').addEventListener('click', async () => {
         try {
           const handle = await window.showSaveFilePicker({
             suggestedName: zipName,
-            types: [{ description: 'Arquivo ZIP', accept: { 'application/zip': ['.zip'] } }]
+            types: [{ description: 'Arquivo ZIP', accept: { 'application/zip': ['.zip'] } }],
           });
           const writable = await handle.createWritable();
           await writable.write(blob);
@@ -683,7 +631,8 @@ function downloadAs(content, filename) {
 function downloadBlobAs(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url; a.download = filename;
+  a.href = url;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
@@ -693,22 +642,108 @@ function downloadBlobAs(blob, filename) {
 function toast(msg) {
   const existing = document.querySelector('.toast');
   if (existing) existing.remove();
-
   const t = document.createElement('div');
   t.className = 'toast';
   t.textContent = msg;
   document.body.appendChild(t);
-  setTimeout(() => t.remove(), 2000);
+  setTimeout(() => t.remove(), 2200);
 }
 
 // ---- Filters ----
 $('#search').addEventListener('input', (e) => {
   state.searchTerm = e.target.value;
-  state.allMode ? renderListAll() : renderList();
+  renderListAll();
 });
-$('#shortToggle').addEventListener('change', (e) => { state.hideShort = e.target.checked; rescanAllOrActive(); });
-$('#attrsToggle').addEventListener('change', (e) => { state.includeAttrs = e.target.checked; rescanAllOrActive(); });
+$('#shortToggle').addEventListener('change', (e) => {
+  state.hideShort = e.target.checked;
+  rescanAllOrActive();
+});
+$('#attrsToggle').addEventListener('change', (e) => {
+  state.includeAttrs = e.target.checked;
+  rescanAllOrActive();
+});
 $('#rescanBtn').addEventListener('click', rescanAllOrActive);
+
+// ---- Tradução via API ----
+translateActiveBtn.addEventListener('click', async () => {
+  const file = state.files[state.activeIndex];
+  if (!file) return toast('Abra um arquivo primeiro.');
+  await translateFile(file, langSelect.value);
+});
+
+translateAllBtn.addEventListener('click', async () => {
+  if (!state.files.length) return toast('Abra arquivo(s) primeiro.');
+  const lang = langSelect.value;
+
+  // traduz 1 por 1 (mais seguro)
+  for (const f of state.files) {
+    await translateFile(f, lang);
+  }
+});
+
+async function translateFile(file, lang) {
+  const nodes = file.nodes || [];
+  if (!nodes.length) {
+    file.nodes = scanDoc(file.doc);
+  }
+
+  // pega todos snippets em ordem
+  const entries = file.nodes;
+
+  // evita chamadas gigantes: chunk de 40 itens
+  const chunkSize = 40;
+
+  toast(`🌍 Traduzindo: ${file.name}...`);
+
+  for (let i = 0; i < entries.length; i += chunkSize) {
+    const chunk = entries.slice(i, i + chunkSize);
+    const texts = chunk.map((e) => e.snippet);
+
+    const translated = await callTranslateAPI(texts, lang);
+
+    if (!Array.isArray(translated) || translated.length !== chunk.length) {
+      throw new Error('Resposta da tradução inválida.');
+    }
+
+    // aplica traduções no DOM
+    for (let k = 0; k < chunk.length; k++) {
+      const entry = chunk[k];
+      const newVal = translated[k];
+
+      if (entry.type === 'text') entry.node.nodeValue = newVal;
+      else if (entry.type === 'attr') entry.node.setAttribute(entry.key, newVal);
+
+      entry.snippet = newVal;
+      entry.length = newVal.length;
+    }
+  }
+
+  file.dirty = true;
+  updateDirty();
+  await rescanAllOrActive();
+
+  toast(`✅ Tradução aplicada: ${file.name}`);
+}
+
+async function callTranslateAPI(texts, targetLang) {
+  const res = await fetch('/api/translate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetLang, texts }),
+  });
+
+  if (!res.ok) {
+    const msg = await safeReadText(res);
+    throw new Error(`Erro na API (${res.status}): ${msg || 'sem detalhes'}`);
+  }
+
+  const data = await res.json();
+  return data.translations;
+}
+
+async function safeReadText(res) {
+  try { return await res.text(); } catch { return ''; }
+}
 
 // Initial render
 renderListAll();
