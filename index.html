@@ -5,6 +5,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Creative Studio</title>
+
+  <!-- ✅ Ajuste: paths absolutos (mais seguro no Vercel) -->
   <link rel="stylesheet" href="/styles/common.css" />
   <link rel="stylesheet" href="/styles/translator.css" />
   <link rel="stylesheet" href="/styles/builder.css" />
@@ -519,6 +521,7 @@
     <div class="toast-container" id="toastContainer"></div>
   </div>
 
+  <!-- ✅ Ajuste: defer + paths absolutos pros scripts -->
   <script defer src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script defer src="/scripts/app.js"></script>
   <script defer src="/scripts/translator.js"></script>
