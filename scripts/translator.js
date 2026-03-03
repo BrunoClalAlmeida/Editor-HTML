@@ -693,7 +693,12 @@ async function downloadAllTranslations() {
   const folderAMP = master.folder('AMP');
 
   for (const output of translationOutputs) {
-    const safeLang = output.langValue.replace(/[^a-zA-Z0-9_-]/g, '_').toLowerCase();
+    const safeLang = (output.langLabel || output.langValue)
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // remove acentos
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .replace(/+/g, '')
+      .replace(/^|$/g, '')
+      .toLowerCase();
     const { bundleGroups, standalone } = groupFilesByBundle(output.filesHtml);
 
     for (const bid of Object.keys(bundleGroups).map(Number)) {
