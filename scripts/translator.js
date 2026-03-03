@@ -694,11 +694,12 @@ async function downloadAllTranslations() {
 
   for (const output of translationOutputs) {
     const safeLang = (output.langLabel || output.langValue)
-      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // remove acentos
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
       .replace(/[^a-zA-Z0-9_-]/g, '_')
-      .replace(/+/g, '')
-      .replace(/^|$/g, '')
+      .replace(/\+/g, '')
+      .replace(/^_+|_+$/g, '')
       .toLowerCase();
+
     const { bundleGroups, standalone } = groupFilesByBundle(output.filesHtml);
 
     for (const bid of Object.keys(bundleGroups).map(Number)) {

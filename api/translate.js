@@ -1,6 +1,7 @@
-// api/translate.js
-export default async function handler(req, res) {
-    // CORS básico (se abrir localmente ou em outro domínio)
+// api/translate.js (Vercel Serverless Function)
+
+module.exports = async function handler(req, res) {
+    // CORS básico
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -23,8 +24,8 @@ export default async function handler(req, res) {
             return res.status(500).json({ error: "OPENAI_API_KEY not set on server" });
         }
 
-        // Prompt seguro e determinístico (responde somente JSON)
         const payloadStr = JSON.stringify(texts.map((t, i) => ({ i, t })));
+
         const sys =
             `Translate each text to ${lang}.` +
             (context ? ` Context: ${context}.` : "") +
@@ -51,8 +52,8 @@ export default async function handler(req, res) {
         });
 
         const rawText = await resp.text();
+
         if (!resp.ok) {
-            // repassa erro legível
             let msg = `HTTP ${resp.status}`;
             try {
                 const j = JSON.parse(rawText);
@@ -67,4 +68,4 @@ export default async function handler(req, res) {
     } catch (e) {
         return res.status(500).json({ error: e?.message || "Server error" });
     }
-}
+};

@@ -1,5 +1,5 @@
 // app.js — Navegação entre seções
-(function(){
+(function () {
   const navTabs = document.querySelectorAll('.nav-tab');
   const sections = document.querySelectorAll('.section');
 
