@@ -1,0 +1,63 @@
+:root{
+  --bg:#090c13;
+  --surface:#0f1319;
+  --surface2:#141a24;
+  --border:#1c2333;
+  --border2:#252d40;
+  --text:#e2e5eb;
+  --text2:#8892a4;
+  --accent:#6366f1;
+  --accent2:#818cf8;
+  --ok:#10b981;
+  --warn:#f59e0b;
+  --danger:#ef4444;
+  --radius:12px;
+  --base-font:14px;
+}
+
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:'Inter',ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;
+  background:var(--bg);color:var(--text);font-size:var(--base-font);
+  -webkit-font-smoothing:antialiased;overflow:hidden;
+}
+
+.hidden{display:none!important}
+
+/* ---- Navegação global ---- */
+.global-nav{
+  display:flex;align-items:center;
+  padding:0 20px;height:44px;
+  background:#0b0e16;
+  border-bottom:1px solid var(--border);
+  gap:24px;z-index:500;flex-shrink:0;
+}
+.nav-brand{
+  font-size:15px;font-weight:700;
+  background:linear-gradient(135deg,var(--accent),#a855f7);
+  -webkit-background-clip:text;background-clip:text;
+  -webkit-text-fill-color:transparent;
+  letter-spacing:-.3px;white-space:nowrap;
+}
+.nav-tabs{display:flex;gap:4px}
+.nav-tab{
+  appearance:none;border:none;
+  background:transparent;color:var(--text2);
+  padding:8px 16px;border-radius:8px;
+  font-size:13px;font-weight:600;font-family:inherit;
+  cursor:pointer;display:flex;align-items:center;gap:7px;
+  transition:all .15s;
+}
+.nav-tab:hover{background:var(--surface2);color:var(--text)}
+.nav-tab.active{background:var(--accent);color:#fff}
+.nav-tab svg{flex-shrink:0}
+
+/* ---- Seções ---- */
+.section{
+  display:none;
+  flex-direction:column;
+  height:calc(100vh - 44px);
+  overflow:hidden;
+}
+.section.active{display:flex}
